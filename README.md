@@ -65,3 +65,19 @@ Macro conditional support and stance/form numbering must be verified against
 the current WoW: Infinite client. API-observed values are not guaranteed to
 be identical to secure macro-condition evaluation.
 =======
+
+TUI 2.2.0 - Inspector module
+----------------------------
+Commands:
+  /tuiinspect        Open/close Inspector
+  /tuiinspect spell 12345   Inspect a spell by ID or name
+  /tuiinspect item 12345    Inspect an item by ID or name
+  /tuiinspect state         Inspect live player state
+  /tuiinspect api           List supported read-only API probes
+  /tuiinspect macro         Show macro conditional reference
+  /tiq                    Alias for /tuiinspect
+
+The Inspector uses guarded API calls and does not evaluate arbitrary Lua code.
+Macro conditional support and stance/form numbering must be verified against
+the current WoW: Infinite client. API-observed values are not guaranteed to
+be identical to secure macro-condition evaluation.
