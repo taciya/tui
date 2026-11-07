@@ -1,0 +1,47 @@
+name: Lua addon checks
+
+on:
+  push:
+    branches: ["main", "audit/**"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  syntax-and-manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+      - name: Parse every Lua source file
+        run: |
+          find . -type f -name '*.lua' -not -path './.git/*' -print0 | xargs -0 -r -n1 luac5.1 -p
+      - name: Validate TOC and XML references
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          root = Path(".")
+          toc = root / "TUI.toc"
+          if not toc.exists():
+              raise SystemExit("TUI.toc is missing")
+
+          for raw in toc.read_text(encoding="utf-8-sig").splitlines():
+              entry = raw.strip()
+              if not entry or entry.startswith("#"):
+                  continue
+              target = root / entry
+              if not target.is_file():
+                  raise SystemExit(f"TOC entry does not exist: {entry}")
+              if target.suffix.lower() == ".xml":
+                  xml_root = ET.parse(target).getroot()
+                  for node in xml_root.iter():
+                      if node.tag.endswith("Script") and node.get("file"):
+                          script = root / node.get("file")
+                          if not script.is_file():
+                              raise SystemExit(f"XML script does not exist: {node.get('file')}")
+          print("TOC and XML references are valid.")
+          PY
