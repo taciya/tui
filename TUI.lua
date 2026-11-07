@@ -613,23 +613,24 @@ function Load_TUI_Button_CMD()
 	table.sort(definitions, function(a, b) return a.index < b.index end)
 
 	for _, data in ipairs(definitions) do
-		local name = "TUI_BUTTON_CMD" .. data.key
+		local buttonData = data -- copy the loop value for Lua 5.1 closures
+		local name = "TUI_BUTTON_CMD" .. buttonData.key
 		local button = _G[name] or CreateFrame("Button", name, UIParent, "UIPanelButtonTemplate,SecureActionButtonTemplate")
 		button:RegisterForClicks("LeftButtonUp", "RightButtonUp", "MiddleButtonUp")
 		button:SetAttribute("type1", "macro")
-		button:SetAttribute("macrotext1", data.macro)
-		button:SetAttribute("type2", data.rightMacro and "macro" or nil)
-		button:SetAttribute("macrotext2", data.rightMacro)
-		button:SetAttribute("type3", data.middleMacro and "macro" or nil)
-		button:SetAttribute("macrotext3", data.middleMacro)
+		button:SetAttribute("macrotext1", buttonData.macro)
+		button:SetAttribute("type2", buttonData.rightMacro and "macro" or nil)
+		button:SetAttribute("macrotext2", buttonData.rightMacro)
+		button:SetAttribute("type3", buttonData.middleMacro and "macro" or nil)
+		button:SetAttribute("macrotext3", buttonData.middleMacro)
 		button:ClearAllPoints()
-		button:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 4 + 31 * data.index, 4)
+		button:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 4 + 31 * buttonData.index, 4)
 		button:SetSize(26, 26)
-		button:SetText(data.text)
+		button:SetText(buttonData.text)
 		button:SetScript("OnEnter", function(self)
 			if not GameTooltip then return end
 			GameTooltip:SetOwner(self, "ANCHOR_TOP")
-			GameTooltip:SetText(data.tooltip or data.text)
+			GameTooltip:SetText(buttonData.tooltip or buttonData.text)
 			GameTooltip:Show()
 		end)
 		button:SetScript("OnLeave", function()
