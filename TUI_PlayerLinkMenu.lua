@@ -97,26 +97,7 @@ local function TUI_SetItemRef(link, text, button)
 		end
 		return
 	end
---[[
-	elseif (string.sub(link, 1, 7) == "channel") then
-		local channel=string.sub(link, 9);
 
-		if (channel) then
-			if (not DEFAULT_CHAT_FRAME.editBox:IsShown()) then
-				ChatFrame_OpenChat(" ", DEFAULT_CHAT_FRAME);				
-			end
-			if (tonumber(channel)) then
-				DEFAULT_CHAT_FRAME.editBox:SetAttribute("chatType", "CHANNEL");
-				DEFAULT_CHAT_FRAME.editBox:SetAttribute("channelTarget", channel);
-			else
-				DEFAULT_CHAT_FRAME.editBox:SetAttribute("chatType", string.upper(channel));
-			end
-			DEFAULT_CHAT_FRAME.editBox.info=" "	
-			ChatEdit_UpdateHeader(DEFAULT_CHAT_FRAME.editBox);
-			return;
-		end
---]]
-	end
 	if IsControlKeyDown() then
 		if DressUpItemLink then DressUpItemLink(text) end
 	elseif IsShiftKeyDown() then
@@ -129,9 +110,7 @@ local function TUI_SetItemRef(link, text, button)
 	elseif ( IsAltKeyDown() ) then
 		local itemID = getID(link)
 		if not itemID then
-			if TUI_OriginalSetItemRef and TUI_OriginalSetItemRef ~= SetItemRef then
-				return TUI_OriginalSetItemRef(link, text, button)
-			end
+			if TUI_OriginalSetItemRef then return TUI_OriginalSetItemRef(link, text, button) end
 			return
 		end
 		local playerName = UnitName("player")
@@ -175,10 +154,10 @@ if not _G.TUI_PlayerLinkMenuInstalled then
 end
 
 function ChatBar_UseChatType(chatType, target)
-	--local chatFrame = SELECTED_DOCK_FRAME or DEFAULT_CHAT_FRAME;
-	--local editBox = chatFrame.editBox;
-	local editBox = ChatEdit_ChooseBoxForSend();
-	local chatFrame = editBox.chatFrame;
+	if not chatType or not ChatEdit_ChooseBoxForSend then return end
+	local editBox = ChatEdit_ChooseBoxForSend()
+	if not editBox then return end
+	local chatFrame = editBox.chatFrame or DEFAULT_CHAT_FRAME
 	
 	local chatType, channelIndex = string.gmatch(chatType, "([^%d]*)([%d]*)$")();
 	
