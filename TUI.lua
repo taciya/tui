@@ -92,29 +92,69 @@ SLASH_DR2="/dr";
 --打印当前职业技能信息
 TUI_SpellInfo = TUI_SpellInfo or {};
 function print_spell()
-	local className = UnitClass("player")
-	TUI_SpellInfo[className] = TUI_SpellInfo[className] or {}
-	if C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines and C_SpellBook.GetSpellBookSkillLineInfo and C_SpellBook.GetSpellBookItemName
-			and Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player then
-		local bank = Enum.SpellBookSpellBank.Player
-		for lineIndex = 1, C_SpellBook.GetNumSpellBookSkillLines() do
-			local lineInfo = C_SpellBook.GetSpellBookSkillLineInfo(lineIndex)
-			if lineInfo then
-				for slot = (lineInfo.itemIndexOffset or 0) + 1, (lineInfo.itemIndexOffset or 0) + (lineInfo.numSpellBookItems or 0) do
-					local spellName = C_SpellBook.GetSpellBookItemName(slot, bank)
-					local _, _, spellID = C_SpellBook.GetSpellBookItemType(slot, bank)
-					local link = spellID and TUI_Compat.GetSpellLink(spellID)
-					if spellID and link then TUI_SpellInfo[className][tostring(spellID)] = link end
+	local localizedName, classFile = UnitClass("player")
+	local classKey = classFile or localizedName or "UNKNOWN"
+	TUI_SpellInfo[classKey] = TUI_SpellInfo[classKey] or {}
+	if not (C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines and C_SpellBook.GetSpellBookSkillLineInfo
+			and C_SpellBook.GetSpellBookItemName and C_SpellBook.GetSpellBookItemType
+			and Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player) then
+		TUI_Print("当前客户端未提供可用的法术书 API")
+		return
+	end
+
+	local bank = Enum.SpellBookSpellBank.Player
+	local printed = 0
+	TUI_Print("===== " .. classKey .. " 技能列表 =====")
+	for lineIndex = 1, C_SpellBook.GetNumSpellBookSkillLines() do
+		local lineInfo = C_SpellBook.GetSpellBookSkillLineInfo(lineIndex)
+		if lineInfo then
+			local first = (lineInfo.itemIndexOffset or 0) + 1
+			local last = (lineInfo.itemIndexOffset or 0) + (lineInfo.numSpellBookItems or 0)
+			for slot = first, last do
+				local spellName = C_SpellBook.GetSpellBookItemName(slot, bank)
+				local _, _, spellID = C_SpellBook.GetSpellBookItemType(slot, bank)
+				local link = spellID and TUI_Compat.GetSpellLink(spellID)
+				if spellID then
+					TUI_SpellInfo[classKey][tostring(spellID)] = link or spellName or tostring(spellID)
+					TUI_Print((link or tostring(spellName or "未知技能")) .. "  ID:" .. tostring(spellID))
+					printed = printed + 1
 				end
 			end
 		end
-	else
-		TUI_Print("当前客户端未提供可用的法术书 API")
 	end
+	TUI_Print("技能记录完成，共 " .. printed .. " 项")
 end
+TUI_PS = print_spell
 SlashCmdList["PS"] = print_spell
-SLASH_PS1="/printspell";
-SLASH_PS2="/ps";
+SLASH_PS1 = "/printspell"
+SLASH_PS2 = "/ps"
+
+-- 输出背包和装备栏物品，包含可直接用于宏的物品 ID。
+function print_items()
+	local count = 0
+	TUI_Print("===== 当前角色物品列表 =====")
+	for bag = 0, 4 do
+		for slot = 1, TUI_Compat.ContainerNumSlots(bag) do
+			local link = TUI_Compat.ContainerItemLink(bag, slot)
+			if link then
+				TUI_Print(string.format("背包 %d/%d  ID:%s  %s", bag, slot, tostring(getID(link) or "?"), link))
+				count = count + 1
+			end
+		end
+	end
+	for slot = 1, 19 do
+		local link = GetInventoryItemLink("player", slot)
+		if link then
+			TUI_Print(string.format("装备栏 %d  ID:%s  %s", slot, tostring(getID(link) or "?"), link))
+			count = count + 1
+		end
+	end
+	TUI_Print("物品记录完成，共 " .. count .. " 项")
+end
+TUI_PI = print_items
+SlashCmdList["TUIITEMS"] = print_items
+SLASH_TUIITEMS1 = "/tuiitems"
+SLASH_TUIITEMS2 = "/pi"
 --获取物品ID
 function getID(link)
 	--"(item[%-%d:]+):%d+|"; >> item:25600:0:0:0:0:0:0:768677774
@@ -294,6 +334,10 @@ function TUI_OnEvent(self, event, ...)
 		if Load_TUI_Button_ByClass then
 			local ok, err = pcall(Load_TUI_Button_ByClass)
 			if not ok then TUI_Print("职业功能初始化失败：" .. tostring(err)) end
+		end
+		if Load_TUI_Button_CMD then
+			local ok, err = pcall(Load_TUI_Button_CMD)
+			if not ok then TUI_Print("命令按钮初始化失败：" .. tostring(err)) end
 		end
 		if self and self.UnregisterEvent then self:UnregisterEvent("PLAYER_LOGIN") end
 	end
@@ -560,57 +604,45 @@ end)
 -- TUI命令按钮
 ------------------------------------------------------------
 function Load_TUI_Button_CMD()
-	local TUI_Button_CMD ={
-		["SPELLS"]={
-			["TextName"]="法",
-			["TextMacro1"]="/script TUI_PS();",
-			["TextTooltip"]="打印【当前角色】技能一览信息",
-			["Idx"]=0,
-		},
-		["ITEMS"]={
-			["TextName"]="物",
-			["TextMacro1"]="/script TUI_PI();",
-			["TextTooltip"]="打印【所有角色】物品一览信息",
-			["Idx"]=1
-		},
-		["RELOAD"]={
-			["TextName"]="重",
-			["TextMacro1"]="/script ReloadUI();",
-			["TextTooltip"]="重新载入游戏",
-			["Idx"]=2
-		}
-		,
-		["TEST"]={
-			["TextName"]="T",
-			["TextMacro1"]="/ti 12",
-			["TextMacro2"]="/ti 10",
-			["TextMacro3"]="/script Join_DJSJPD()",
-			["TextTooltip"]="保存装备快捷信息",
-			["Idx"]=3
-		}
+	local definitions = {
+		{ key = "SPELLS", text = "法", macro = "/ps", tooltip = "打印当前角色技能及 ID", index = 0 },
+		{ key = "ITEMS", text = "物", macro = "/tuiitems", tooltip = "打印背包及装备物品 ID", index = 1 },
+		{ key = "RELOAD", text = "重", macro = "/reload", tooltip = "重新载入游戏", index = 2 },
+		{ key = "TEST", text = "T", macro = "/ti 12", rightMacro = "/ti 10", middleMacro = "/tuiworldchannel", tooltip = "左键保存 F12，右键保存 F10，中键切换世界频道", index = 3 },
 	}
-	for key, value in pairs(TUI_Button_CMD) do
-		local TUI_BUTTON_CMD = CreateFrame("Button", 'TUI_BUTTON_CMD'..key, nil, "UIPanelButtonTemplate,SecureActionButtonTemplate")
-		TUI_BUTTON_CMD:RegisterForClicks("LeftButtonUp","RightButtonUp","MiddleButtonUp")
-		TUI_BUTTON_CMD:SetAttribute("type1", "macro")
-		TUI_BUTTON_CMD:SetAttribute("macrotext1",value.TextMacro1)
-		if value.TextMacro2 then
-			TUI_BUTTON_CMD:SetAttribute("type2", "macro")
-			TUI_BUTTON_CMD:SetAttribute("macrotext2",value.TextMacro2)
-		end
-		if value.TextMacro3 then
-			TUI_BUTTON_CMD:SetAttribute("type3", "macro")
-			TUI_BUTTON_CMD:SetAttribute("macrotext3",value.TextMacro3)
-		end
+	table.sort(definitions, function(a, b) return a.index < b.index end)
 
-		TUI_BUTTON_CMD:SetPoint("BOTTOMLEFT",31*value.Idx+4,0)
-		TUI_BUTTON_CMD:SetWidth(26)
-		TUI_BUTTON_CMD:SetHeight(26)
-		TUI_BUTTON_CMD:SetText(value.TextName)
-		TUI_BUTTON_CMD:Show()
-
+	for _, data in ipairs(definitions) do
+		local name = "TUI_BUTTON_CMD" .. data.key
+		local button = _G[name] or CreateFrame("Button", name, UIParent, "UIPanelButtonTemplate,SecureActionButtonTemplate")
+		button:RegisterForClicks("LeftButtonUp", "RightButtonUp", "MiddleButtonUp")
+		button:SetAttribute("type1", "macro")
+		button:SetAttribute("macrotext1", data.macro)
+		button:SetAttribute("type2", data.rightMacro and "macro" or nil)
+		button:SetAttribute("macrotext2", data.rightMacro)
+		button:SetAttribute("type3", data.middleMacro and "macro" or nil)
+		button:SetAttribute("macrotext3", data.middleMacro)
+		button:ClearAllPoints()
+		button:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 4 + 31 * data.index, 4)
+		button:SetSize(26, 26)
+		button:SetText(data.text)
+		button:SetScript("OnEnter", function(self)
+			if not GameTooltip then return end
+			GameTooltip:SetOwner(self, "ANCHOR_TOP")
+			GameTooltip:SetText(data.tooltip or data.text)
+			GameTooltip:Show()
+		end)
+		button:SetScript("OnLeave", function()
+			if GameTooltip then GameTooltip:Hide() end
+		end)
+		button:Show()
 	end
-end 
+end
+
+SlashCmdList["TUIWORLDCHANNEL"] = function() Join_DJSJPD() end
+SLASH_TUIWORLDCHANNEL1 = "/tuiworldchannel"
+SLASH_TUIWORLDCHANNEL2 = "/twc"
+
 -- 自动加入 大脚世界频道
 function Join_DJSJPD()
 	local idxChatFrame = 0 
