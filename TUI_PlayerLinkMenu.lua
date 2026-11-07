@@ -198,6 +198,7 @@ function ChatBar_UseChatType(chatType, target)
 	elseif string.upper(chatType) == "CHANNEL" then
 		if target then
 			if type(target) == "string" then
+				if not GetChannelName then return end
 				target = GetChannelName(target)
 			end
 		elseif channelIndex and channelIndex ~= "" then
