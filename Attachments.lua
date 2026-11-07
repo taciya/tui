@@ -84,31 +84,40 @@ local function collectOneMail()
     end
 
     pendingMail = mail
-    local didAction = false
+    local attempted, failed = 0, false
 
-    -- These protected actions are intentionally called only in the button's
+    -- These protected actions are intentionally called only from the button's
     -- hardware-click handler, never from an event callback.
     if mail.money > 0 then
         if TakeInboxMoney then
-            TakeInboxMoney(mail.index)
-            didAction = true
+            local ok, err = pcall(TakeInboxMoney, mail.index)
+            if ok then attempted = attempted + 1
+            else
+                failed = true
+                if TUI and TUI.Print then TUI:Print("领取邮件金币失败：" .. tostring(err)) end
+            end
         else
+            failed = true
             if TUI and TUI.Print then TUI:Print("当前客户端不支持 TakeInboxMoney") end
         end
     end
 
     if mail.items > 0 then
         if AutoLootMailItem then
-            AutoLootMailItem(mail.index)
-            didAction = true
+            local ok, err = pcall(AutoLootMailItem, mail.index)
+            if ok then attempted = attempted + 1
+            else
+                failed = true
+                if TUI and TUI.Print then TUI:Print("领取邮件附件失败：" .. tostring(err)) end
+            end
         else
+            failed = true
             if TUI and TUI.Print then TUI:Print("当前客户端不支持 AutoLootMailItem") end
         end
     end
 
-    if not didAction then
-        pendingMail = nil
-    end
+    -- If only part of a message was collected, let the user retry the remainder.
+    if attempted == 0 or failed then pendingMail = nil end
     updateButton()
 end
 
