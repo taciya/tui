@@ -51,7 +51,6 @@ function TUI_DC(msg)
 			end
 		end
 	end
-	_G.TUI_ClassButtonsLoaded = true
 end
 SlashCmdList["DC"] = TUI_DC
 SLASH_DC1="/DC";
@@ -761,4 +760,5 @@ function Load_TUI_Button_ByClass()
 		end
 
 	end
+	_G.TUI_ClassButtonsLoaded = true
 end
