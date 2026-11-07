@@ -298,6 +298,10 @@ function TUI_ItemRack_F10() applySet("F10") end
 function TUI_ItemRack_F11() applySet("F11") end
 function TUI_ItemRack_F12() applySet("F12") end
 
+-- Backward-compatible entry points used by older user macros.
+function TUI_Equip_10() applySet("F10") end
+function TUI_Equip_12() applySet("F12") end
+
 local function saveSet(message)
     local number = tonumber(message)
     if not number or number < 10 or number > 12 or number ~= math.floor(number) then
