@@ -11,7 +11,17 @@ TUI_ItemDB = TUI_ItemDB or {}
 NakedObj_Nakie = NakedObj_Nakie or false
 
 local function playerKey()
-    return UnitName("player") or "Unknown"
+    local name = UnitName("player") or "Unknown"
+    local realm = GetRealmName and GetRealmName()
+    if realm and realm ~= "" then
+        local key = name .. "-" .. realm
+        -- One-time migration from the legacy character-name-only key.
+        if not TUI_ItemDB[key] and TUI_ItemDB[name] then
+            TUI_ItemDB[key] = TUI_ItemDB[name]
+        end
+        return key
+    end
+    return name
 end
 
 local function playerDB()
@@ -298,6 +308,10 @@ SLASH_TUIITEMRACK1 = "/TUIITEMRACK"
 SLASH_TUIITEMRACK2 = "/ti"
 
 local function saveNamedItem(slotKey, message)
+    if not GetItemInfo then
+        TUI_Print("当前客户端不支持 GetItemInfo")
+        return
+    end
     local name = GetItemInfo(message)
     if not name then
         TUI_Print("物品信息尚未缓存，请使用物品链接再试一次")
