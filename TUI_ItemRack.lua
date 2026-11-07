@@ -208,8 +208,18 @@ function TUI_Dressing()
                     return
                 end
             else
-                missing = missing + 1
-                TUI_Print("背包中找不到装备 ID：" .. tostring(wantedID))
+                local sourceSlot = findEquippedItem(wantedID, slot)
+                if sourceSlot then
+                    if equipFromOtherSlot(slot, sourceSlot) then
+                        restored = restored + 1
+                    else
+                        TUI_Print("恢复装备失败，已停止后续操作")
+                        return
+                    end
+                else
+                    missing = missing + 1
+                    TUI_Print("背包或其他装备栏中找不到装备 ID：" .. tostring(wantedID))
+                end
             end
         end
     end
