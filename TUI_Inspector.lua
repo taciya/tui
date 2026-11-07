@@ -135,7 +135,7 @@ local function getStateLines()
     addLine(lines, "InstanceType", instanceType)
     lines[#lines + 1] = ""
     lines[#lines + 1] = "=== 当前宏条件的可观测近似值 ==="
-    addLine(lines, "[stance:" .. tostring(form or "?") .. "]", form ~= nil and form > 0)
+    addLine(lines, "形态索引大于 0", type(form) == "number" and form > 0)
     addLine(lines, "[stealth]", safeCall(IsStealthed))
     addLine(lines, "[combat]", safeCall(UnitAffectingCombat, "player"))
     addLine(lines, "说明", "宏条件由安全宏系统判定；此处是 API 观测值，不保证与宏解析器完全等价。")
@@ -300,10 +300,16 @@ function Inspector:CreateUI()
     }
     local x = 22
     for _, entry in ipairs(pages) do
-        local button = makeButton(frame, entry[1], 76, function()
-            Inspector.page = entry[2]
-            if entry[2] == "state" or entry[2] == "api" or entry[2] == "macro" then search:Hide() else search:Show() end
-            Inspector:ShowPage(entry[2], search:GetText())
+        -- Lua 5.1 closures capture the loop variable; copy values per button.
+        local pageLabel, pageName = entry[1], entry[2]
+        local button = makeButton(frame, pageLabel, 76, function()
+            Inspector.page = pageName
+            if pageName == "state" or pageName == "api" or pageName == "macro" then
+                search:Hide()
+            else
+                search:Show()
+            end
+            Inspector:ShowPage(pageName, search:GetText())
         end)
         button:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -78)
         x = x + 82
