@@ -12,19 +12,42 @@ end
 SLASH_TUIRELOADUI1="/TUIRELOADUI";
 SLASH_TUIRELOADUI2="/tuireload";
 
---清理多余的碎片
+-- 背包物品操作统一检查战斗状态和鼠标光标，避免误删手持物品。
+local function TUI_CanModifyInventory()
+	if InCombatLockdown and InCombatLockdown() then
+		TUI_Print("战斗中无法整理背包")
+		return false
+	end
+	if CursorHasItem and CursorHasItem() then
+		TUI_Print("请先放下鼠标光标上的物品，再执行背包整理")
+		return false
+	end
+	return true
+end
+
+local function TUI_DeleteBagItem(bag, slot, itemLink)
+	if not TUI_CanModifyInventory() then return false end
+	if not TUI_Compat or not TUI_Compat.PickupContainerItem then return false end
+	TUI_Compat.PickupContainerItem(bag, slot)
+	if CursorHasItem and CursorHasItem() then
+		DeleteCursorItem()
+		TUI_Print(" 清理物品 | " .. tostring(itemLink))
+		return true
+	end
+	return false
+end
+
+-- 清理超过保留数量的灵魂碎片。
 function TUI_DC(msg)
-	local idx=0;
-	for bag=4, 0, -1 do
-		for slot=1, C_Container.GetContainerNumSlots(bag) do
-			local itemLink=C_Container.GetContainerItemLink(bag, slot);
-			if (itemLink ~=nil and string.find(itemLink,"灵魂碎片")) then
-				idx=idx+1;
-				if (idx>(tonumber(msg) or 16)) then
-					C_Container.PickupContainerItem(bag,slot);
-					DeleteCursorItem();
-					TUI_Print(" 清理物品 | "..itemLink);
-				end
+	if not TUI_CanModifyInventory() then return end
+	local keepCount = math.max(0, tonumber(msg) or 16)
+	local found = 0
+	for bag = 4, 0, -1 do
+		for slot = 1, TUI_Compat.ContainerNumSlots(bag) do
+			local itemLink = TUI_Compat.ContainerItemLink(bag, slot)
+			if itemLink and string.find(itemLink, "灵魂碎片", 1, true) then
+				found = found + 1
+				if found > keepCount then TUI_DeleteBagItem(bag, slot, itemLink) end
 			end
 		end
 	end
@@ -33,21 +56,26 @@ SlashCmdList["DC"] = TUI_DC
 SLASH_DC1="/DC";
 SLASH_DC2="/dc";
 
---清理垃圾
+-- 清理已标记的垃圾物品；只在安全、空光标状态下执行。
 function TUI_DR()
-	TUI_Print(" 清理物品 | ------------------------");
-	for bag=4, 0, -1 do
-		for slot=1, C_Container.GetContainerNumSlots(bag) do
-			local itemLink=C_Container.GetContainerItemLink(bag, slot);
-			local id=getID(itemLink);
-			if (itemLink and id and TUI_Rubbish[UnitName("player")] and TUI_Rubbish[UnitName("player")][id..""]) then
-				C_Container.PickupContainerItem(bag,slot);
-				DeleteCursorItem();
-				TUI_Print(" 清理物品 | "..itemLink);
+	if not TUI_CanModifyInventory() then return end
+	local playerName = UnitName("player")
+	local rubbish = TUI_Rubbish and TUI_Rubbish[playerName]
+	if not rubbish then
+		TUI_Print("垃圾列表为空")
+		return
+	end
+	local removed = 0
+	for bag = 4, 0, -1 do
+		for slot = 1, TUI_Compat.ContainerNumSlots(bag) do
+			local itemLink = TUI_Compat.ContainerItemLink(bag, slot)
+			local id = getID(itemLink)
+			if id and rubbish[id] and TUI_DeleteBagItem(bag, slot, itemLink) then
+				removed = removed + 1
 			end
 		end
 	end
-	TUI_Print(" 清理物品 | ------------------------");
+	TUI_Print("垃圾清理完成，共删除 " .. removed .. " 件物品")
 end
 SlashCmdList["DR"] = TUI_DR
 SLASH_DR1="/DR";
@@ -103,19 +131,19 @@ TUI_SendMessages={
 --SendChatMessage("text" [, "chatType" [, "language" [, "channel"]]])
 
 function TUI_SendMsg(msg)
-	--if (MinimapZoneText:GetText() == "冰血要塞") then
-	--	SendChatMessage("男人正常--男人正常--男人正常", "BATTLEGROUND") ;
-	--else
-	local _,uc=UnitClass("target");
-	if (UnitExists("target") and UnitIsPlayer("target") and TUI_SendMessages[uc]) then
-		SendChatMessage(TUI_SendMessages[uc], "WHISPER", self.language, UnitName("target")) ;
-	elseif ( msg and (string.len(msg) > 0) )then
-		SendChatMessage(msg,"CHANNEL",GetDefaultLanguage(),1);
-		SendChatMessage(msg,"CHANNEL",GetDefaultLanguage(),2);
-		SendChatMessage(msg,"CHANNEL",GetDefaultLanguage(),3);
-		SendChatMessage(msg,"CHANNEL",GetDefaultLanguage(),4);
-		SendChatMessage(msg,"CHANNEL",GetDefaultLanguage(),5);		
-		SendChatMessage(msg,"CHANNEL",GetDefaultLanguage(),6);						
+	local _, class = UnitClass("target")
+	if UnitExists("target") and UnitIsPlayer("target") and TUI_SendMessages[class] then
+		SendChatMessage(TUI_SendMessages[class], "WHISPER", GetDefaultLanguage(), UnitName("target"))
+		return
+	end
+	msg = trim and trim(msg or "") or (msg or "")
+	if msg == "" then return end
+	-- 只发送到实际加入的频道，频道编号以客户端返回值为准。
+	for index = 1, 6 do
+		local channelID = GetChannelName(index)
+		if channelID and channelID > 0 then
+			SendChatMessage(msg, "CHANNEL", GetDefaultLanguage(), channelID)
+		end
 	end
 end
 SlashCmdList["TUIHANHUA"]=TUI_SendMsg;
@@ -131,10 +159,9 @@ end
 
 
 function TUI_Print(msg)
-	if(msg) then
-		DEFAULT_CHAT_FRAME:AddMessage(msg);
-	else
-		DEFAULT_CHAT_FRAME:AddMessage("is nil");
+	local frame = DEFAULT_CHAT_FRAME
+	if frame and frame.AddMessage then
+		frame:AddMessage(tostring(msg == nil and "is nil" or msg))
 	end
 end
 SlashCmdList["TUIPRINT"]=TUI_Print;
@@ -142,33 +169,35 @@ SLASH_TUIPRINT1="/TUIPRINT";
 SLASH_TUIPRINT2="/tp";
 
 function TUI_HP()
-	if UnitExists("target") then
-		local un,uh,uhm,ct=UnitName("target"),UnitHealth("target"),UnitHealthMax("target"),"RAID";
-		SendChatMessage(un.."  "..uh.."/"..uhm.."  ("..math.floor(uh/uhm*100).."%)","RAID",GetDefaultLanguage());		
+	if not UnitExists("target") then return end
+	local name = UnitName("target") or "目标"
+	local health, maxHealth = UnitHealth("target"), UnitHealthMax("target")
+	if type(health) ~= "number" or type(maxHealth) ~= "number" or maxHealth <= 0 then
+		TUI_Print("当前目标血量数据不可用")
+		return
 	end
+	local percent = math.floor(health / maxHealth * 100 + 0.5)
+	SendChatMessage(string.format("%s  %d/%d  (%d%%)", name, health, maxHealth, percent), "RAID", GetDefaultLanguage())
 end
 
 --取得物品信息，包裹和人物装备
-function TUI_ItemInfo(arg1,arg2)
-	if (type(arg1)=="string") then
-		if (arg1=="player") then
-			if (not GetInventoryItemLink("player",arg2)) then
-				return nil;
-			end
-			i,j, itemID, enchant, randomProp, uniqID, name=string.find(GetInventoryItemLink("player",arg2),".Hitem:(%d+):(%d+):(%d+):(%d+).h[[]([^]]+)[]].h")
-			return tonumber(itemID or nil), tonumber(randomProp or nil), tonumber(enchant or nil), tonumber(uniqID or nil), name			
+function TUI_ItemInfo(arg1, arg2)
+	local itemLink
+	if type(arg1) == "string" then
+		if arg1 == "player" then
+			itemLink = GetInventoryItemLink("player", arg2)
 		else
-			local i,j, itemID, enchant, randomProp, uniqID, name=string.find(arg1,".Hitem:(%d+):(%d+):(%d+):(%d+).h[[]([^]]+)[]].h")
-			return tonumber(itemID or nil), tonumber(randomProp or nil), tonumber(enchant or nil), tonumber(uniqID or nil), name
+			itemLink = arg1
 		end
-	else
-		local ItemLink=TUI_Compat.ContainerItemLink(arg1, arg2);
-		if (not ItemLink) then
-			return nil,nil,nil,nil,nil;
-		end
-		local i,j, itemID, enchant, randomProp, uniqID, name=string.find(ItemLink,".Hitem:(%d+):(%d+):(%d+):(%d+).h[[]([^]]+)[]].h")
-		return tonumber(itemID or nil), tonumber(randomProp or nil), tonumber(enchant or nil), tonumber(uniqID or nil), name ,ItemLink
+	elseif type(arg1) == "number" then
+		itemLink = TUI_Compat.ContainerItemLink(arg1, arg2)
 	end
+	if not itemLink then return nil, nil, nil, nil, nil end
+
+	local itemID, enchant, randomProp, uniqueID, itemName =
+		string.match(itemLink, "Hitem:(%d+):(%d+):(%d+):(%d+).*|h%[([^]]+)%]|h")
+	return tonumber(itemID), tonumber(randomProp), tonumber(enchant),
+		t tonumber and tonumber(uniqueID) or nil, itemName, itemLink
 end
 
 function TUI_tinsertLink(arg1,arg2,arg3)
@@ -197,7 +226,9 @@ function TUI_tinsertText(arg1,arg2,arg3)
 	
 	if (not arg3) then
 		local _,_,item=string.find(arg2,"([[][^]]+[]])");
-		table.insert(arg1,UnitName("target").." "..item or arg2);
+		local targetName = UnitName("target") or ""
+		local value = item and (targetName .. " " .. item) or arg2
+		table.insert(arg1, value);
 		TUI_Print(item or arg2);
 		return ;
 	end
@@ -592,10 +623,17 @@ function Join_DJSJPD()
 			break
 		end
 	end
-	vChatFrame = _G("ChatFrame"..idxChatFrame)
+	if idxChatFrame > 0 then
+		vChatFrame = _G["ChatFrame" .. idxChatFrame]
+	end
+	vChatFrame = vChatFrame or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
+	if not vChatFrame then
+		TUI_Print("找不到可用的聊天窗口")
+		return
+	end
 
-	local _, channelName, _ = GetChannelName("大脚世界频道")
-	if channelName == nil then
+	local channelID = GetChannelName("大脚世界频道")
+	if not channelID or channelID == 0 then
 		JoinChannelByName("大脚世界频道", nil, vChatFrame:GetID(), 1)
 		ChatFrame_AddChannel(vChatFrame, "大脚世界频道")
 		print("|cff00d200已加入大脚世界频道|r")
@@ -619,13 +657,9 @@ function Load_TUI_Button_ByClass()
 		local itemID = itemInfo and itemInfo.itemID
 		local itemCount = itemInfo and itemInfo.stackCount or 0
 		local itemTexture = itemInfo and itemInfo.iconFileID
-		if itemID then
-			local itemName, _, _, _, _, itemType, itemSubType, _, _, fallbackTexture = GetItemInfo(itemID)
-			itemTexture = itemTexture or fallbackTexture
-			local sMacroText=""
-			sMacroText = sMacroText.."/cast 喂养宠物\n"
-			sMacroText = sMacroText.."/use "..itemName.."\n"
-			local TUI_Button_Food = CreateFrame("Button", 'TUI_Button_Food', nil, "UIPanelButtonTemplate,SecureActionButtonTemplate")
+		if itemID and not _G.TUI_Button_Food then
+			local sMacroText = "/cast 喂养宠物\n/use item:" .. itemID
+			local TUI_Button_Food = CreateFrame("Button", "TUI_Button_Food", UIParent, "UIPanelButtonTemplate,SecureActionButtonTemplate")
 			TUI_Button_Food:SetAttribute("type", "macro")
 			TUI_Button_Food:SetAttribute("macrotext",sMacroText )
 			TUI_Button_Food:RegisterForClicks("LeftButtonUp")
@@ -635,18 +669,16 @@ function Load_TUI_Button_ByClass()
 			TUI_Button_Food:SetHeight(32)
 			TUI_Button_Food:SetNormalTexture(itemTexture);--GetSpellTexture(6991)
 			TUI_Button_Food:SetText(itemCount)
-			TUI_Button_Food:RegisterEvent("SPELL_UPDATE_COOLDOWN")
-			TUI_Button_Food:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
-			TUI_Button_Food:SetScript('OnEvent', function(self, event, ...)
+			local function updateFoodButton(self)
 				local info = C_Container and C_Container.GetContainerItemInfo and C_Container.GetContainerItemInfo(1, 1)
-			self:SetText(info and info.stackCount or 0)
-				if UnitExists("pet") then
-					TUI_Button_Food:SetAlpha(1)
-				else
-					TUI_Button_Food:SetAlpha(0)
-				end
-				--GetPetFoodTypes()
-			end)
+				self:SetText(info and info.stackCount or 0)
+				self:SetAlpha(UnitExists("pet") and 1 or 0)
+			end
+			TUI_Button_Food:RegisterEvent("BAG_UPDATE_DELAYED")
+			TUI_Button_Food:RegisterEvent("UNIT_PET")
+			TUI_Button_Food:RegisterEvent("PLAYER_ENTERING_WORLD")
+			TUI_Button_Food:SetScript("OnEvent", updateFoodButton)
+			updateFoodButton(TUI_Button_Food)
 			TUI_Button_Food:Show()
 		else
 			print("宠物食物未设定<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
