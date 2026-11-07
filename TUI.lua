@@ -143,9 +143,13 @@ function TUI_SendMsg(msg)
 	msg = trim and trim(msg or "") or (msg or "")
 	if msg == "" then return end
 	-- 只发送到实际加入的频道，频道编号以客户端返回值为准。
+	if not GetChannelName then
+		TUI_Print("当前客户端不支持频道查询 API")
+		return
+	end
 	for index = 1, 6 do
 		local channelID = GetChannelName(index)
-		if channelID and channelID > 0 then
+		if type(channelID) == "number" and channelID > 0 then
 			SendChatMessage(msg, "CHANNEL", GetDefaultLanguage(), channelID)
 		end
 	end
@@ -180,14 +184,15 @@ function TUI_HP()
 		TUI_Print("当前目标血量数据不可用")
 		return
 	end
-	local ok, percent = pcall(function()
-		return math.floor(health / maxHealth * 100 + 0.5)
+	local ok, message = pcall(function()
+		local percent = math.floor(health / maxHealth * 100 + 0.5)
+		return string.format("%s  %d/%d  (%d%%)", name, health, maxHealth, percent)
 	end)
-	if not ok or type(percent) ~= "number" then
-		TUI_Print("当前客户端限制读取目标血量百分比")
+	if not ok then
+		TUI_Print("当前客户端限制读取目标血量数据")
 		return
 	end
-	SendChatMessage(string.format("%s  %d/%d  (%d%%)", name, health, maxHealth, percent), "RAID", GetDefaultLanguage())
+	SendChatMessage(message, "RAID", GetDefaultLanguage())
 end
 
 --取得物品信息，包裹和人物装备
@@ -666,7 +671,7 @@ function Join_DJSJPD()
 	local channelID = GetChannelName("大脚世界频道")
 	if not channelID or channelID == 0 then
 		JoinChannelByName("大脚世界频道", nil, vChatFrame:GetID(), 1)
-		ChatFrame_AddChannel(vChatFrame, "大脚世界频道")
+		if ChatFrame_AddChannel then ChatFrame_AddChannel(vChatFrame, "大脚世界频道") end
 		print("|cff00d200已加入大脚世界频道|r")
 	else
 		LeaveChannelByName("大脚世界频道")
