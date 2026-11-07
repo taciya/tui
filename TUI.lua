@@ -18,7 +18,11 @@ local function TUI_CanModifyInventory()
 		TUI_Print("战斗中无法整理背包")
 		return false
 	end
-	if CursorHasItem and CursorHasItem() then
+	if not CursorHasItem then
+		TUI_Print("当前客户端缺少 CursorHasItem，已取消背包操作")
+		return false
+	end
+	if CursorHasItem() then
 		TUI_Print("请先放下鼠标光标上的物品，再执行背包整理")
 		return false
 	end
@@ -90,7 +94,8 @@ TUI_SpellInfo = TUI_SpellInfo or {};
 function print_spell()
 	local className = UnitClass("player")
 	TUI_SpellInfo[className] = TUI_SpellInfo[className] or {}
-	if C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines and C_SpellBook.GetSpellBookSkillLineInfo and C_SpellBook.GetSpellBookItemName then
+	if C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines and C_SpellBook.GetSpellBookSkillLineInfo and C_SpellBook.GetSpellBookItemName
+			and Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player then
 		local bank = Enum.SpellBookSpellBank.Player
 		for lineIndex = 1, C_SpellBook.GetNumSpellBookSkillLines() do
 			local lineInfo = C_SpellBook.GetSpellBookSkillLineInfo(lineIndex)
@@ -704,7 +709,7 @@ function Load_TUI_Button_ByClass()
 			TUI_Button_Food:SetPoint("RIGHT", _G.PetFrame or UIParent, "RIGHT", 50, -2)
 			TUI_Button_Food:SetWidth(32)
 			TUI_Button_Food:SetHeight(32)
-			TUI_Button_Food:SetNormalTexture(itemTexture);--GetSpellTexture(6991)
+			if itemTexture then TUI_Button_Food:SetNormalTexture(itemTexture) end
 			TUI_Button_Food:SetText(itemCount)
 			local function updateFoodButton(self)
 				local info = C_Container and C_Container.GetContainerItemInfo and C_Container.GetContainerItemInfo(1, 1)
