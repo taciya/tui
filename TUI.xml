@@ -4,10 +4,10 @@
 	<Frame name="TUI_FRAME" enableMouse="false" movable="false" parent="UIParent">
     <Scripts>
 			<OnLoad>
-				TUI_OnLoad();
+				TUI_OnLoad(self);
 			</OnLoad>
 			<OnEvent>
-				TUI_OnEvent();
+				TUI_OnEvent(self, event, ...);
 			</OnEvent>
     </Scripts>
 	</Frame>

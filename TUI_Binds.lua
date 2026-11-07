@@ -69,7 +69,8 @@ local function gn(id,id1,id2,id3)
 	return "";
 end
 --]]
-TUIBinds={}
+TUIBinds = TUIBinds or {}
+local TUIBindsInitialized = false
 TUIBinds.Party={PartyMemberFrame1,PartyMemberFrame2,PartyMemberFrame3,PartyMemberFrame4,PlayerFrame,PartyMemberFrame1PetFrame,PartyMemberFrame2PetFrame,PartyMemberFrame3PetFrame,PartyMemberFrame4PetFrame,TargetFrameTargetFrame}
 TUIBinds.Target = {TargetFrame}
 TUIBinds.MouseButtons = {
@@ -547,6 +548,15 @@ function TUIBinds_SetButtonUnit(self, unit, vbutton)
 end
 
 function TUIBinds_OnEvent()
+	if TUIBindsInitialized then return true end
+	if InCombatLockdown and InCombatLockdown() then
+		if TUI_Print then TUI_Print("战斗中无法初始化按键绑定") end
+		return false
+	end
+	if type(SetBinding) ~= "function" or type(SetBindingClick) ~= "function" then
+		if TUI_Print then TUI_Print("当前客户端缺少按键绑定 API") end
+		return false
+	end
 	local buttonName,button,item
 	for i,item in pairs(TUIBinds["common"]) do
 		if item.Key then
@@ -592,6 +602,10 @@ function TUIBinds_OnEvent()
 			end
 		end
 	end
-	SaveBindings(GetCurrentBindingSet())
-	DEFAULT_CHAT_FRAME:AddMessage("Binds is loaded")
+	if SaveBindings and GetCurrentBindingSet then
+		SaveBindings(GetCurrentBindingSet())
+	end
+	TUIBindsInitialized = true
+	if TUI_Print then TUI_Print("按键绑定已加载") end
+	return true
 end

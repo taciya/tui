@@ -1,93 +1,143 @@
--- Sequentially loot non-COD mail attachments. The button is created lazily,
--- because the mailbox UI is load-on-demand on current clients.
-local L = TUI_LOCALE or { ["take attachments"] = "Take Attachments", stop = "Stop", ["no attachments"] = "No attachments" }
-local current = nil
-local previousMoney = 0
-local button
+-- Mail helper: each mail is collected only from a direct user click.
+-- Do not chain protected mail actions from MAIL_INBOX_UPDATE / ITEM_PUSH events.
+local L = TUI_LOCALE or {}
+local TAKE_TEXT = L["take attachments"] or "领取下一封"
+local EMPTY_TEXT = L["no attachments"] or "没有可领取的邮件"
+local BUSY_TEXT = L.collecting or "领取中…"
 
-local function inboxCount()
-    return (GetInboxNumItems and GetInboxNumItems()) or 0
+local button
+local pendingMail
+
+local function getMail(index)
+    if not GetInboxHeaderInfo then return nil end
+    local _, _, sender, subject, money, cod, _, hasItem = GetInboxHeaderInfo(index)
+    if not sender then return nil end
+
+    money = tonumber(money) or 0
+    cod = tonumber(cod) or 0
+    local itemCount = 0
+    if hasItem and GetInboxItem then
+        for attachmentIndex = 1, 12 do
+            local itemName = GetInboxItem(index, attachmentIndex)
+            if not itemName then break end
+            itemCount = itemCount + 1
+        end
+    end
+
+    return {
+        index = index,
+        sender = sender,
+        subject = subject or "",
+        money = money,
+        cod = cod,
+        items = itemCount,
+    }
 end
 
-local function peekInbox()
-    for index = 1, inboxCount() do
-        local _, _, sender, subject, money, cod, _, hasItem = GetInboxHeaderInfo(index)
-        money, cod = money or 0, cod or 0
-        local itemCount = 0
-        if hasItem and GetInboxItem then
-            for attachmentIndex = 1, 12 do
-                local itemName = GetInboxItem(index, attachmentIndex)
-                if not itemName then break end
-                itemCount = itemCount + 1
-            end
-        end
-        if sender and cod == 0 and (money > 0 or itemCount > 0) then
-            return { id = index, sender = sender, subject = subject, money = money, items = itemCount }
+local function findNextMail()
+    local count = (GetInboxNumItems and GetInboxNumItems()) or 0
+    for index = 1, count do
+        local mail = getMail(index)
+        if mail and mail.cod == 0 and (mail.money > 0 or mail.items > 0) then
+            return mail
         end
     end
 end
 
-local function moneyText(amount)
-    if not amount or amount <= 0 then return nil end
-    local gold = math.floor(amount / 10000)
-    local silver = math.floor(amount / 100) % 100
-    local copper = amount % 100
-    local parts = {}
-    if gold > 0 then parts[#parts + 1] = gold .. (GOLD_AMOUNT and "g" or "g") end
-    if silver > 0 then parts[#parts + 1] = silver .. "s" end
-    if copper > 0 then parts[#parts + 1] = copper .. "c" end
-    return table.concat(parts, " ")
+local function pendingStillExists()
+    if not pendingMail then return false end
+    local mail = getMail(pendingMail.index)
+    if not mail then return false end
+    return mail.sender == pendingMail.sender
+        and mail.subject == pendingMail.subject
+        and (mail.money > 0 or mail.items > 0)
 end
 
 local function updateButton()
     if not button then return end
-    local nextMail = peekInbox()
-    if current then
-        button:SetText(L.stop)
-        button:Enable()
-    elseif nextMail then
-        button:SetText(L["take attachments"])
+    if pendingMail and pendingStillExists() then
+        button:SetText(BUSY_TEXT)
+        button:Disable()
+        return
+    end
+
+    pendingMail = nil
+    if findNextMail() then
+        button:SetText(TAKE_TEXT)
         button:Enable()
     else
-        button:SetText(L["no attachments"])
+        button:SetText(EMPTY_TEXT)
         button:Disable()
     end
 end
 
-local function processNext()
-    current = peekInbox()
-    if current and AutoLootMailItem then
-        button:SetText(L.stop)
-        AutoLootMailItem(current.id)
-    else
-        current = nil
-        updateButton()
+local function collectOneMail()
+    if InCombatLockdown and InCombatLockdown() then
+        if TUI and TUI.Print then TUI:Print("战斗中不能领取邮件") end
+        return
     end
+
+    local mail = findNextMail()
+    if not mail then
+        updateButton()
+        return
+    end
+
+    pendingMail = mail
+    local attempted, failed = 0, false
+
+    -- These protected actions are intentionally called only from the button's
+    -- hardware-click handler, never from an event callback.
+    if mail.money > 0 then
+        if TakeInboxMoney then
+            local ok, err = pcall(TakeInboxMoney, mail.index)
+            if ok then attempted = attempted + 1
+            else
+                failed = true
+                if TUI and TUI.Print then TUI:Print("领取邮件金币失败：" .. tostring(err)) end
+            end
+        else
+            failed = true
+            if TUI and TUI.Print then TUI:Print("当前客户端不支持 TakeInboxMoney") end
+        end
+    end
+
+    if mail.items > 0 then
+        if AutoLootMailItem then
+            local ok, err = pcall(AutoLootMailItem, mail.index)
+            if ok then attempted = attempted + 1
+            else
+                failed = true
+                if TUI and TUI.Print then TUI:Print("领取邮件附件失败：" .. tostring(err)) end
+            end
+        else
+            failed = true
+            if TUI and TUI.Print then TUI:Print("当前客户端不支持 AutoLootMailItem") end
+        end
+    end
+
+    -- If only part of a message was collected, let the user retry the remainder.
+    if attempted == 0 or failed then pendingMail = nil end
+    updateButton()
 end
 
 local function createButton()
-    if button or not InboxFrame then return end
-    button = CreateFrame("Button", "TUIAttachmentsButton", InboxFrame, "UIPanelButtonTemplate")
+    if button then return end
+    local parent = InboxFrame or MailFrame
+    if not parent then return end
+
+    button = CreateFrame("Button", "TUIAttachmentsButton", parent, "UIPanelButtonTemplate")
     button:SetSize(128, 24)
-    button:SetPoint("TOPLEFT", InboxFrame, "TOPLEFT", 72, -41)
-    button:SetScript("OnClick", function(self)
-        if current then
-            current = nil
-            updateButton()
-        else
-            processNext()
-        end
-    end)
+    button:SetPoint("TOPLEFT", parent, "TOPLEFT", 72, -41)
+    button:SetScript("OnClick", collectOneMail)
     updateButton()
 end
 
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("MAIL_SHOW")
 eventFrame:RegisterEvent("MAIL_INBOX_UPDATE")
-eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:RegisterEvent("PLAYER_MONEY")
-eventFrame:RegisterEvent("ITEM_PUSH")
 eventFrame:RegisterEvent("MAIL_CLOSED")
+eventFrame:RegisterEvent("PLAYER_MONEY")
 eventFrame:SetScript("OnEvent", function(_, event)
     if event == "MAIL_SHOW" then
         createButton()
@@ -95,27 +145,10 @@ eventFrame:SetScript("OnEvent", function(_, event)
     elseif event == "MAIL_INBOX_UPDATE" then
         if not button then createButton() end
         updateButton()
-    elseif event == "PLAYER_ENTERING_WORLD" then
-        previousMoney = (GetMoney and GetMoney()) or 0
     elseif event == "PLAYER_MONEY" then
-        local money = (GetMoney and GetMoney()) or previousMoney
-        local gained = money - previousMoney
-        previousMoney = money
-        if current and current.money > 0 and gained >= current.money then
-            local report = moneyText(current.money)
-            if report and DEFAULT_CHAT_FRAME then
-                DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff00ff00%s|r %s [%s]", current.sender, report, current.subject or UNKNOWN or ""))
-            end
-            current.money = 0
-        end
-        if current and current.money <= 0 and current.items <= 0 then processNext() end
-    elseif event == "ITEM_PUSH" then
-        if current and current.items > 0 then
-            current.items = current.items - 1
-            if current.money <= 0 and current.items <= 0 then processNext() end
-        end
+        updateButton()
     elseif event == "MAIL_CLOSED" then
-        current = nil
-        if MiniMapMailFrame and inboxCount() == 0 then MiniMapMailFrame:Hide() end
+        pendingMail = nil
+        if button then button:Disable() end
     end
 end)

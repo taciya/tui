@@ -1,4 +1,4 @@
-﻿--[[
+--[[
 功能说明：
 			对聊天窗口链接的快捷操作。
 			如果链接是玩家，那么对应不同组合快捷会直接调用不同的功能
@@ -20,10 +20,8 @@
 			参数2 为玩家名
 --]]
 --获取物品ID
-function getID(link)
-	--"(item[%-%d:]+):%d+|"; >> item:25600:0:0:0:0:0:0:768677774
-	local ItemStringMatch = "item:(%d+):";
-	return string.match(link or "", ItemStringMatch);
+local function getID(link)
+	return link and string.match(link, "item:(%d+)")
 end
 local TUI_PLM={
 	["LEFT"]={
@@ -45,121 +43,88 @@ local TUI_PLM={
 		["SHIFT"]=function(name)
 			GuildInvite(name);
 		end,
-		["ALT"]=function(name,connected,lineID)
-		--[[
-			local dialog = StaticPopup_Show("CONFIRM_REPORT_SPAM_CHAT", name);
-			if (dialog) then
-				dialog.data = lineID;
+		["ALT"]=function(name)
+			if not name then return end
+			local kept, removed = {}, false
+			for entry in string.gmatch(TUI_IgnoreList or ",", "[^,]+") do
+				if entry == name then removed = true else kept[#kept + 1] = entry end
 			end
-			return lineID and CanComplainChat(lineID)
-		--]]
-
-			if (name and string.find(TUI_IgnoreList, "," .. name .. ",", 1, true)) then
-				TUI_IgnoreList=string.gsub(TUI_IgnoreList,","..name..",",",")
-				DEFAULT_CHAT_FRAME:AddMessage(name.." 已经从屏蔽列表中删除")
+			TUI_IgnoreList = "," .. table.concat(kept, ",") .. ","
+			if DEFAULT_CHAT_FRAME then
+				DEFAULT_CHAT_FRAME:AddMessage(removed and (name .. " 已从屏蔽列表中删除") or (name .. " 不在屏蔽列表中"))
 			end
-
 		end,
 		["CTRL"]=function(name)
-		--[[
-			AddIgnore(name);
-		--]]
-
-			if (not name or string.find(TUI_IgnoreList, "," .. name .. ",", 1, true)) then
-				DEFAULT_CHAT_FRAME:AddMessage((name or "nil").."已经存在于屏蔽列表中")
-			else
-				TUI_IgnoreList=TUI_IgnoreList..name..","
-				DEFAULT_CHAT_FRAME:AddMessage(name.." 已经添加到屏蔽列表中")
+			if not name then return end
+			for entry in string.gmatch(TUI_IgnoreList or ",", "[^,]+") do
+				if entry == name then
+					if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage(name .. " 已存在于屏蔽列表中") end
+					return
+				end
 			end
-
+			TUI_IgnoreList = (TUI_IgnoreList or ",") .. name .. ","
+			if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage(name .. " 已添加到屏蔽列表中") end
 		end,
 		["NONE"]=function(name)
-			if (not DEFAULT_CHAT_FRAME.editBox:IsShown()) then
-				ChatFrame_OpenChat(name, DEFAULT_CHAT_FRAME);
+			local editBox = ChatEdit_ChooseBoxForSend and ChatEdit_ChooseBoxForSend()
+			if not editBox then
+				ChatFrame_OpenChat("", DEFAULT_CHAT_FRAME)
+				editBox = ChatEdit_ChooseBoxForSend and ChatEdit_ChooseBoxForSend()
 			end
-			DEFAULT_CHAT_FRAME.editBox:Insert(name);
+			if editBox and editBox.Insert then
+				editBox:Insert(name)
+			elseif DEFAULT_CHAT_FRAME then
+				DEFAULT_CHAT_FRAME:AddMessage("无法打开聊天输入框")
+			end
 		end,
 	},
 };
 TUI_Rubbish = TUI_Rubbish or {};
 TUI_IgnoreList = TUI_IgnoreList or ",";
 local TUI_OriginalSetItemRef = SetItemRef
-function SetItemRef(link, text, button)
+local function TUI_SetItemRef(link, text, button)
 	link = link or ""
 	text = text or link
-	if (string.sub(link, 1, 6) == "player") then
-		local namelink = string.sub(link, 8);
-		local name, lineid = string.match(namelink, "([^:]+):?(.*)");
-		if (name and (string.len(name) > 0)) then
-		  name = string.gsub(name, "([^%s]*)%s+([^%s]*)%s+([^%s]*)", "%3");
-		  name = string.gsub(name, "([^%s]*)%s+([^%s]*)", "%2");
-		  local doAction;
-		  local usedButton = "LEFT";
-		  local key = "NONE";
-		  if (button == "RightButton") then
-			usedButton = "RIGHT";
-		  end
-		  if (IsShiftKeyDown()) then
-			key = "SHIFT";
-		  elseif (IsControlKeyDown()) then
-			key = "CTRL";
-		  elseif (IsAltKeyDown()) then
-			key = "ALT";
-		  end
-		  local TUI_Action=TUI_PLM[usedButton][key];
-		  if TUI_Action then
-			return TUI_Action(name);
-		  end
+	if string.sub(link, 1, 7) == "player:" then
+		local name = string.match(link, "^player:([^:]+)")
+		if name and name ~= "" then
+			local usedButton = button == "RightButton" and "RIGHT" or "LEFT"
+			local key = IsShiftKeyDown() and "SHIFT"
+				or (IsControlKeyDown() and "CTRL")
+				or (IsAltKeyDown() and "ALT") or "NONE"
+			local action = TUI_PLM[usedButton][key]
+			if action then return action(name) end
 		end
-		return;
---[[
-	elseif (string.sub(link, 1, 7) == "channel") then
-		local channel=string.sub(link, 9);
-
-		if (channel) then
-			if (not DEFAULT_CHAT_FRAME.editBox:IsShown()) then
-				ChatFrame_OpenChat(" ", DEFAULT_CHAT_FRAME);				
-			end
-			if (tonumber(channel)) then
-				DEFAULT_CHAT_FRAME.editBox:SetAttribute("chatType", "CHANNEL");
-				DEFAULT_CHAT_FRAME.editBox:SetAttribute("channelTarget", channel);
-			else
-				DEFAULT_CHAT_FRAME.editBox:SetAttribute("chatType", string.upper(channel));
-			end
-			DEFAULT_CHAT_FRAME.editBox.info=" "	
-			ChatEdit_UpdateHeader(DEFAULT_CHAT_FRAME.editBox);
-			return;
-		end
---]]
+		return
 	end
-	if ( IsControlKeyDown() ) then
-		DressUpItemLink(text);
-	elseif ( IsShiftKeyDown() ) then
-		if ( ChatFrameEditBox:IsVisible() ) then
-			ChatFrameEditBox:Insert(text);
+
+	if IsControlKeyDown() then
+		if DressUpItemLink then DressUpItemLink(text) end
+	elseif IsShiftKeyDown() then
+		local editBox = ChatEdit_ChooseBoxForSend and ChatEdit_ChooseBoxForSend()
+		if editBox and editBox:IsShown() then
+			editBox:Insert(text)
+		else
+			if TUI_OriginalSetItemRef then return TUI_OriginalSetItemRef(link, text, button) end
 		end
 	elseif ( IsAltKeyDown() ) then
 		local itemID = getID(link)
 		if not itemID then
-			if TUI_OriginalSetItemRef and TUI_OriginalSetItemRef ~= SetItemRef then
-				return TUI_OriginalSetItemRef(link, text, button)
-			end
+			if TUI_OriginalSetItemRef then return TUI_OriginalSetItemRef(link, text, button) end
 			return
 		end
-		if (TUI_Rubbish[UnitName("player")] == nil ) then
-			TUI_Rubbish[UnitName("player")] = {}
-		end
-		if (button == "RightButton") then
-			TUI_Rubbish[UnitName("player")][itemID..""]=nil;
-			DEFAULT_CHAT_FRAME:AddMessage(text.."已经从垃圾列表中移处！");
+		local playerName = UnitName("player")
+		TUI_Rubbish[playerName] = TUI_Rubbish[playerName] or {}
+		if button == "RightButton" then
+			TUI_Rubbish[playerName][itemID] = nil
+			if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage(text .. " 已从垃圾列表中移除") end
 		else
-			if(TUI_Rubbish[UnitName("player")][itemID..""]) then
-				DEFAULT_CHAT_FRAME:AddMessage(text.."已经存在于垃圾列表中=======");
+			if TUI_Rubbish[playerName][itemID] then
+				if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage(text .. " 已在垃圾列表中") end
 			else
-				TUI_Rubbish[UnitName("player")][itemID..""]=text;
-				DEFAULT_CHAT_FRAME:AddMessage(text.."已经添加到垃圾列表中！");
+				TUI_Rubbish[playerName][itemID] = text
+				if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage(text .. " 已添加到垃圾列表中") end
 			end
-
 		end
 	elseif (string.sub(link, 1, 7) == "channel") then
 	--[[
@@ -171,7 +136,7 @@ function SetItemRef(link, text, button)
 	--]]
 		ChatBar_UseChatType(string.sub(link, 9, 15),string.sub(link, 17));
 	else
-		if TUI_OriginalSetItemRef and TUI_OriginalSetItemRef ~= SetItemRef then
+		if TUI_OriginalSetItemRef then
 			return TUI_OriginalSetItemRef(link, text, button)
 		end
 		if ItemRefTooltip then
@@ -182,18 +147,24 @@ function SetItemRef(link, text, button)
 	end
 end
 
+-- Keep the Blizzard handler available for every link type we do not own.
+if not _G.TUI_PlayerLinkMenuInstalled then
+	SetItemRef = TUI_SetItemRef
+	_G.TUI_PlayerLinkMenuInstalled = true
+end
+
 function ChatBar_UseChatType(chatType, target)
-	--local chatFrame = SELECTED_DOCK_FRAME or DEFAULT_CHAT_FRAME;
-	--local editBox = chatFrame.editBox;
-	local editBox = ChatEdit_ChooseBoxForSend();
-	local chatFrame = editBox.chatFrame;
-	
-	local chatType, channelIndex = string.gmatch(chatType, "([^%d]*)([%d]*)$")();
-	
+	if type(chatType) ~= "string" or not ChatEdit_ChooseBoxForSend then return end
+	local editBox = ChatEdit_ChooseBoxForSend()
+	if not editBox then return end
+	local chatFrame = editBox.chatFrame or DEFAULT_CHAT_FRAME
+	local parsedType, channelIndex = string.match(chatType, "([^%d]*)([%d]*)$")
+	chatType = parsedType or chatType
+
 	if chatType == "WHISPER" or chatType == "BN_WHISPER" then
-		target = ChatEdit_GetLastToldTarget();
+		target = (ChatEdit_GetLastToldTarget and ChatEdit_GetLastToldTarget()) or ""
 		if target == "" then
-			target = ChatEdit_GetLastTellTarget();
+			target = (ChatEdit_GetLastTellTarget and ChatEdit_GetLastTellTarget()) or ""
 		end
 		if target == "" then
 			--start new (bn) whisper
@@ -207,16 +178,15 @@ function ChatBar_UseChatType(chatType, target)
 		end
 		
 	elseif chatType == "BN_CONVERSATION" then
-		target = ChatBar_GetLastBNConversationInTarget();
+		target = (ChatBar_GetLastBNConversationInTarget and ChatBar_GetLastBNConversationInTarget()) or ""
 		if target == "" then
-			target = ChatBar_GetLastBNConversationOutTarget();
+			target = (ChatBar_GetLastBNConversationOutTarget and ChatBar_GetLastBNConversationOutTarget()) or ""
 		end
 		if target == "" then
 			target = (GetFirstBNConversation and GetFirstBNConversation()) or "";
 		end
 		if target == "" then
-			--start new bn conversation
-			BNConversationInvite_NewConversation();
+			if BNConversationInvite_NewConversation then BNConversationInvite_NewConversation() end
 		else
 			--target = target + MAX_WOW_CHAT_CHANNELS;
 			ChatEdit_ActivateChat(editBox);
@@ -228,13 +198,15 @@ function ChatBar_UseChatType(chatType, target)
 	elseif string.upper(chatType) == "CHANNEL" then
 		if target then
 			if type(target) == "string" then
-				target = GetChannelName(target);
+				if not GetChannelName then return end
+				target = GetChannelName(target)
 			end
-		elseif channelIndex then
-			target = tonumber(channelIndex);
+		elseif channelIndex and channelIndex ~= "" then
+			target = tonumber(channelIndex)
 		else
 			return
 		end
+		if not target or target == 0 then return end
 		ChatEdit_ActivateChat(editBox);
 		editBox:SetAttribute("channelTarget", target);
 		editBox:SetAttribute("chatType", "CHANNEL");
@@ -248,7 +220,7 @@ function ChatBar_UseChatType(chatType, target)
 	
 	local text = (editBox:GetText() or "");
 	
-	if ChatEdit_GetLastTellTarget() == "" and chatType ~= "WHISPER" and chatType ~= "BN_WHISPER"
+	if (not ChatEdit_GetLastTellTarget or ChatEdit_GetLastTellTarget() == "") and chatType ~= "WHISPER" and chatType ~= "BN_WHISPER"
 			and string.sub(text, 1, 3) == "/w " then
 		ChatFrame_OpenChat("", chatFrame);
 	end
