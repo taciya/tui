@@ -197,7 +197,7 @@ function TUI_ItemInfo(arg1, arg2)
 	local itemID, enchant, randomProp, uniqueID, itemName =
 		string.match(itemLink, "Hitem:(%d+):(%d+):(%d+):(%d+).*|h%[([^]]+)%]|h")
 	return tonumber(itemID), tonumber(randomProp), tonumber(enchant),
-		t tonumber and tonumber(uniqueID) or nil, itemName, itemLink
+		tonumber(uniqueID), itemName, itemLink
 end
 
 function TUI_tinsertLink(arg1,arg2,arg3)
