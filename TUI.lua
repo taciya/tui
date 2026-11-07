@@ -298,48 +298,7 @@ function TUI_OnEvent(self, event, ...)
 		if self and self.UnregisterEvent then self:UnregisterEvent("PLAYER_LOGIN") end
 	end
 end
---[[
---根据怒气染色
-local ActionButtons={
-	"Action",
-	"MultiBarBottomLeft",
-	--"MultiBarBottomRight",
-	--"MultiBarRight",
-	--"MultiBarLeft"
-}
-local RageSpells={
-	WARRIOR={
-		gn(25286)=45,
-		gn(30330)=50,		
-	},
-}
-function TUI_UNIT_RAGE(unit)
-	if (unit ~= "player") then
-		return;
-	end
-	local _,uc=UnitClass("player");
-	if (not RageSpells[uc]) then
-		return ;
-	end
-	local actionButton,spellID,spellName,rage;
-	for _,action in pairs(ActionButtons) do
-		for slot=1,12 do
-			spellID = GetActionInfo(slot);
-			actionButton = _G(action.."Button"..slot);
-			if (actionButton and spellID) then
-				spellName=GetSpellInfo(spellID);
-				if (spellName) then
-					rage=RageSpells[uc][spellName];
-					local player_rage=UnitMana("player");
-					if (rage and rage >= player_rage) then
-						
-					end
-				end
-			end
-		end		
-	end
-end
---]]
+
 
 --自定义错误信息层
 function TUI_ERRORS_OnLoad(self)
