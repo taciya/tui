@@ -31,11 +31,18 @@ function TUI:Error(message)
     self:Print("|cffff5555" .. tostring(message) .. "|r")
 end
 
+local function packResults(...)
+    return { n = select("#", ...), ... }
+end
+
 function TUI:SafeCall(label, callback, ...)
     if type(callback) ~= "function" then return false, "callback is not a function" end
-    local ok, result = pcall(callback, ...)
-    if not ok then self:Error((label or "operation") .. ": " .. tostring(result)) end
-    return ok, result
+    local results = packResults(pcall(callback, ...))
+    if not results[1] then
+        self:Error((label or "operation") .. ": " .. tostring(results[2]))
+        return false, results[2]
+    end
+    return true, unpack(results, 2, results.n)
 end
 
 function TUI:InitializeModules()
