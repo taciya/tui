@@ -160,7 +160,7 @@ function TUI_Nakedize()
         return
     end
 
-    local saved = {}
+    local saved, failed = {}, false
     for slot = 19, 1, -1 do
         if not NO_UNDRESS[slot] then
             local link = GetInventoryItemLink("player", slot)
@@ -169,21 +169,29 @@ function TUI_Nakedize()
                 local bag, bagSlot = findFreeBagSlot()
                 if not bag then
                     TUI_Print("背包空位不足，脱装备操作已停止")
+                    failed = true
                     break
                 end
                 if moveEquippedToBag(slot, bag, bagSlot) then
                     saved[tostring(slot)] = tostring(id)
                 else
                     TUI_Print("无法收纳装备：" .. tostring(link))
+                    failed = true
                     break
                 end
             end
         end
     end
 
-    db.Naked = { active = true, items = saved }
-    NakedObj_Nakie = true
-    TUI_Print("脱装备完成")
+    if next(saved) then
+        db.Naked = { active = true, items = saved }
+        NakedObj_Nakie = true
+        TUI_Print(failed and "脱装备部分完成；可再次执行 F9 恢复已收纳装备" or "脱装备完成")
+    else
+        db.Naked = nil
+        NakedObj_Nakie = false
+        TUI_Print(failed and "脱装备未完成" or "没有需要脱下的装备")
+    end
 end
 
 function TUI_Dressing()
