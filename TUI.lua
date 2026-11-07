@@ -51,6 +51,7 @@ function TUI_DC(msg)
 			end
 		end
 	end
+	_G.TUI_ClassButtonsLoaded = true
 end
 SlashCmdList["DC"] = TUI_DC
 SLASH_DC1="/DC";
@@ -353,24 +354,41 @@ local function isNull(str)
 	return (str == nil or string.gsub(str, "%s", "") == "")
 end
 function TUI_CHAT_IGNORE(str)
-	local cmd, name = string.match(str or "", "(%S+)%s*(%S+)")
-	if isNull(cmd) then
+	local cmd, name = string.match(str or "", "^(%S+)%s*(.-)%s*$")
+	cmd = string.upper(cmd or "")
+	name = trim(name or "")
+	if cmd == "" then
 		TUI_Print(TUI_IgnoreList or ",")
-	elseif string.upper(cmd) == "ADD" and not isNull(name) then
-		if string.find(TUI_IgnoreList or ",", "," .. name .. ",", 1, true) then
-			TUI_Print(name .. "已经存在于屏蔽列表中")
-		else
-			TUI_IgnoreList = (TUI_IgnoreList or ",") .. name .. ","
-			TUI_Print(name .. " 已经添加到屏蔽列表中")
-		end
-	elseif string.upper(cmd) == "DEL" and not isNull(name) then
-		TUI_IgnoreList = string.gsub(TUI_IgnoreList or ",", "," .. name .. ",", ",")
-		TUI_Print(name .. " 已经从屏蔽列表中删除")
-	elseif string.upper(cmd) == "CLEAR" then
+		return
+	end
+	if cmd == "CLEAR" then
 		TUI_IgnoreList = ","
 		TUI_Print("屏蔽列表已清空")
-	else
+		return
+	end
+	if name == "" or (cmd ~= "ADD" and cmd ~= "DEL") then
 		TUI_Print("用法: /tci ADD|DEL <玩家名> 或 /tci CLEAR")
+		return
+	end
+
+	local entries, found = {}, false
+	for entry in string.gmatch(TUI_IgnoreList or ",", "[^,]+") do
+		if entry == name then
+			found = true
+			if cmd == "ADD" then entries[#entries + 1] = entry end
+		else
+			entries[#entries + 1] = entry
+		end
+	end
+	if cmd == "ADD" and not found then
+		entries[#entries + 1] = name
+	end
+	TUI_IgnoreList = "," .. table.concat(entries, ",") .. ","
+
+	if cmd == "ADD" then
+		TUI_Print(found and (name .. " 已存在于屏蔽列表中") or (name .. " 已添加到屏蔽列表中"))
+	else
+		TUI_Print(found and (name .. " 已从屏蔽列表中删除") or (name .. " 不在屏蔽列表中"))
 	end
 end
 SlashCmdList["TUICHATIGNORE"] = TUI_CHAT_IGNORE
@@ -654,6 +672,7 @@ end
 --冰冻陷阱
 ------------------------------------------------------------
 function Load_TUI_Button_ByClass()
+	if _G.TUI_ClassButtonsLoaded then return end
 	local _,clazz=UnitClass("player")
 	if clazz=="HUNTER" then
 		--自动喂食
@@ -668,7 +687,7 @@ function Load_TUI_Button_ByClass()
 			TUI_Button_Food:SetAttribute("macrotext",sMacroText )
 			TUI_Button_Food:RegisterForClicks("LeftButtonUp")
 			--TUI_Button_Food:SetPoint("CENTER",100,-100)
-			TUI_Button_Food:SetPoint("RIGHT","PetFrame",50,-2)
+			TUI_Button_Food:SetPoint("RIGHT", _G.PetFrame or UIParent, "RIGHT", 50, -2)
 			TUI_Button_Food:SetWidth(32)
 			TUI_Button_Food:SetHeight(32)
 			TUI_Button_Food:SetNormalTexture(itemTexture);--GetSpellTexture(6991)
@@ -704,7 +723,8 @@ function Load_TUI_Button_ByClass()
 		}
 		local iIdx = 0
 		for key, value in pairs(TUI_TRACK) do
-			local TUI_BUTTON_TRACK = CreateFrame("Button", 'TUI_BUTTON_TRACK'..key, nil, "UIPanelButtonTemplate,SecureActionButtonTemplate")
+			local buttonName = "TUI_BUTTON_TRACK" .. key
+			local TUI_BUTTON_TRACK = _G[buttonName] or CreateFrame("Button", buttonName, UIParent, "UIPanelButtonTemplate,SecureActionButtonTemplate")
 			TUI_BUTTON_TRACK:SetAttribute("type", "macro")
 			TUI_BUTTON_TRACK:SetAttribute("macrotext","/cast "..value )
 			TUI_BUTTON_TRACK:RegisterForClicks("LeftButtonUp")
@@ -727,7 +747,8 @@ function Load_TUI_Button_ByClass()
 		}
 		iIdx = 1
 		for key, value in pairs(TUI_BUSINESS) do
-			local TUI_BUTTON_BUSINESS = CreateFrame("Button", 'TUI_BUTTON_BUSINESS'..key, nil, "UIPanelButtonTemplate,SecureActionButtonTemplate")
+			local buttonName = "TUI_BUTTON_BUSINESS" .. key
+			local TUI_BUTTON_BUSINESS = _G[buttonName] or CreateFrame("Button", buttonName, UIParent, "UIPanelButtonTemplate,SecureActionButtonTemplate")
 			TUI_BUTTON_BUSINESS:SetAttribute("type", "macro")
 			TUI_BUTTON_BUSINESS:SetAttribute("macrotext","/cast "..value )
 			TUI_BUTTON_BUSINESS:RegisterForClicks("LeftButtonUp")
