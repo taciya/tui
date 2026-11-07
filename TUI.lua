@@ -456,15 +456,38 @@ hooksecurefunc("TextStatusBar_UpdateTextString", function(textStatusBar)
 
 end)
 --]]
---清理垃圾 
-_G("MainMenuBarBackpackButton"):SetScript("OnMouseDown",function (self, button)
-		if (IsControlKeyDown()) then
-			TUI_DR();
-			TUI_DC(16);
-		elseif ( IsAltKeyDown() and button=="RightButton") then
-			ReloadUI();
-		end	
-	end);
+-- 背包按钮快捷操作。延迟到 PLAYER_LOGIN，避免按钮尚未创建；
+-- 使用 HookScript 保留客户端原有的 OnMouseDown 处理逻辑。
+local function TUI_HookBackpackButton()
+	local button = _G.MainMenuBarBackpackButton
+	if not button then
+		TUI_Print("TUI: 找不到 MainMenuBarBackpackButton，跳过背包快捷操作")
+		return
+	end
+	if button.TUI_MouseDownHooked then return end
+	button.TUI_MouseDownHooked = true
+
+	button:HookScript("OnMouseDown", function(self, mouseButton)
+		if IsControlKeyDown() then
+			if TUI_DR then TUI_DR() end
+			if TUI_DC then TUI_DC(16) end
+		elseif IsAltKeyDown() and mouseButton == "RightButton" then
+			ReloadUI()
+		end
+	end)
+end
+
+local TUI_BackpackHookFrame = CreateFrame("Frame")
+TUI_BackpackHookFrame:RegisterEvent("PLAYER_LOGIN")
+TUI_BackpackHookFrame:SetScript("OnEvent", function(self)
+	TUI_HookBackpackButton()
+	self:UnregisterEvent("PLAYER_LOGIN")
+end)
+
+-- 某些客户端在插件载入时按钮已存在；仍通过同一个幂等函数处理。
+if _G.MainMenuBarBackpackButton then
+	TUI_HookBackpackButton()
+end
 
 ------------------------------------------------------------
 -- 血条及名字按职业颜色
