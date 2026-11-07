@@ -263,16 +263,20 @@ function TUI_Text(str)
 	DEFAULT_CHAT_FRAME:AddMessage("TUI:"..str);
 end
 
-function TUI_OnLoad()
-	--self:RegisterEvent("VARIABLES_LOADED");
-	--this:RegisterEvent("PLAYER_LOGIN")
-	--this:RegisterEvent("UNIT_RAGE");
-	--self:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED");
-	--Load_TUI_Button_CMD();
+function TUI_OnLoad(self)
+	if self and self.RegisterEvent then
+		self:RegisterEvent("PLAYER_LOGIN")
+	end
 end
 
 function TUI_OnEvent(self, event, ...)
-
+	if event == "PLAYER_LOGIN" then
+		if Load_TUI_Button_ByClass then
+			local ok, err = pcall(Load_TUI_Button_ByClass)
+			if not ok then TUI_Print("职业功能初始化失败：" .. tostring(err)) end
+		end
+		if self and self.UnregisterEvent then self:UnregisterEvent("PLAYER_LOGIN") end
+	end
 end
 --[[
 --根据怒气染色
