@@ -1,0 +1,13 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<Script file="TUI_Binds.lua"/>
+	<Frame name="TUIBindsFrame" hidden="true">
+		<Scripts>
+			<OnLoad>
+				self:RegisterEvent("PLAYER_LOGIN")
+			</OnLoad>
+			<OnEvent>
+				TUIBinds_OnEvent()
+			</OnEvent>
+		</Scripts>
+	</Frame>
+</Ui>

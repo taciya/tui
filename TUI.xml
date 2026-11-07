@@ -1,0 +1,30 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<Script file="TUI.lua"/>
+	<GameTooltip name="TUITooltip" frameStrata="TOOLTIP" hidden="true" parent="UIParent" inherits="GameTooltipTemplate"/>
+	<Frame name="TUI_FRAME" enableMouse="false" movable="false" parent="UIParent">
+    <Scripts>
+			<OnLoad>
+				TUI_OnLoad();
+			</OnLoad>
+			<OnEvent>
+				TUI_OnEvent();
+			</OnEvent>
+    </Scripts>
+	</Frame>
+	<MessageFrame name="TUI_ERRORS" displayDuration="5" insertMode="TOP" parent="UIParent" frameStrata="DIALOG" toplevel="true">
+		<Size>
+			<AbsDimension x="512" y="60"/>
+		</Size>
+		<Anchors>
+			<Anchor point="TOP">
+				<Offset>
+					<AbsDimension x="0" y="-300"/>
+				</Offset>
+			</Anchor>
+		</Anchors>
+		<Scripts>
+			<OnLoad function="TUI_ERRORS_OnLoad"/>
+		</Scripts>
+		<FontString inherits="ErrorFont" justifyH="CENTER" />
+	</MessageFrame>
+</Ui>
