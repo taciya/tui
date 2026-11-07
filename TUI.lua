@@ -740,7 +740,8 @@ function Load_TUI_Button_ByClass()
 			TUI_BUTTON_TRACK:SetPoint("TOP",28*iIdx+5,0)
 			TUI_BUTTON_TRACK:SetWidth(20)
 			TUI_BUTTON_TRACK:SetHeight(20)
-			TUI_BUTTON_TRACK:SetNormalTexture(TUI_Compat.GetSpellTextureByID(key));
+			local texture = TUI_Compat.GetSpellTextureByID(key)
+			if texture then TUI_BUTTON_TRACK:SetNormalTexture(texture) end
 			TUI_BUTTON_TRACK:Show()
 			iIdx = iIdx + 1
 		end
@@ -764,7 +765,8 @@ function Load_TUI_Button_ByClass()
 			TUI_BUTTON_BUSINESS:SetPoint("TOP",-28*iIdx-5,0)
 			TUI_BUTTON_BUSINESS:SetWidth(20)
 			TUI_BUTTON_BUSINESS:SetHeight(20)
-			TUI_BUTTON_BUSINESS:SetNormalTexture(TUI_Compat.GetSpellTextureByID(key));
+			local texture = TUI_Compat.GetSpellTextureByID(key)
+			if texture then TUI_BUTTON_BUSINESS:SetNormalTexture(texture) end
 			TUI_BUTTON_BUSINESS:Show()
 			iIdx = iIdx + 1
 		end
