@@ -30,9 +30,13 @@ local function TUI_DeleteBagItem(bag, slot, itemLink)
 	if not TUI_Compat or not TUI_Compat.PickupContainerItem then return false end
 	TUI_Compat.PickupContainerItem(bag, slot)
 	if CursorHasItem and CursorHasItem() then
-		DeleteCursorItem()
-		TUI_Print(" 清理物品 | " .. tostring(itemLink))
-		return true
+		if DeleteCursorItem then
+			DeleteCursorItem()
+			TUI_Print(" 清理物品 | " .. tostring(itemLink))
+			return true
+		end
+		TUI_Compat.PickupContainerItem(bag, slot)
+		TUI_Print("当前客户端不支持删除光标物品，已尝试放回背包")
 	end
 	return false
 end
@@ -176,7 +180,13 @@ function TUI_HP()
 		TUI_Print("当前目标血量数据不可用")
 		return
 	end
-	local percent = math.floor(health / maxHealth * 100 + 0.5)
+	local ok, percent = pcall(function()
+		return math.floor(health / maxHealth * 100 + 0.5)
+	end)
+	if not ok or type(percent) ~= "number" then
+		TUI_Print("当前客户端限制读取目标血量百分比")
+		return
+	end
 	SendChatMessage(string.format("%s  %d/%d  (%d%%)", name, health, maxHealth, percent), "RAID", GetDefaultLanguage())
 end
 
@@ -225,7 +235,7 @@ function TUI_tinsertText(arg1,arg2,arg3)
 	end
 	
 	if (not arg3) then
-		local _,_,item=string.find(arg2,"([[][^]]+[]])");
+		local _, _, item = string.find(arg2 or "", "([[][^]]+[]])");
 		local targetName = UnitName("target") or ""
 		local value = item and (targetName .. " " .. item) or arg2
 		table.insert(arg1, value);
