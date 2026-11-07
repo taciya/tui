@@ -129,12 +129,15 @@ local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("MAIL_SHOW")
 eventFrame:RegisterEvent("MAIL_INBOX_UPDATE")
 eventFrame:RegisterEvent("MAIL_CLOSED")
+eventFrame:RegisterEvent("PLAYER_MONEY")
 eventFrame:SetScript("OnEvent", function(_, event)
     if event == "MAIL_SHOW" then
         createButton()
         updateButton()
     elseif event == "MAIL_INBOX_UPDATE" then
         if not button then createButton() end
+        updateButton()
+    elseif event == "PLAYER_MONEY" then
         updateButton()
     elseif event == "MAIL_CLOSED" then
         pendingMail = nil
