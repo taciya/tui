@@ -1,10 +1,9 @@
 -- Mail helper: each mail is collected only from a direct user click.
 -- Do not chain protected mail actions from MAIL_INBOX_UPDATE / ITEM_PUSH events.
-local L = TUI_LOCALE or {
-    ["take attachments"] = "领取下一封",
-    ["no attachments"] = "没有可领取的邮件",
-    ["collecting"] = "领取中…",
-}
+local L = TUI_LOCALE or {}
+local TAKE_TEXT = L["take attachments"] or "领取下一封"
+local EMPTY_TEXT = L["no attachments"] or "没有可领取的邮件"
+local BUSY_TEXT = L.collecting or "领取中…"
 
 local button
 local pendingMail
@@ -57,17 +56,17 @@ end
 local function updateButton()
     if not button then return end
     if pendingMail and pendingStillExists() then
-        button:SetText(L.collecting)
+        button:SetText(BUSY_TEXT)
         button:Disable()
         return
     end
 
     pendingMail = nil
     if findNextMail() then
-        button:SetText(L["take attachments"])
+        button:SetText(TAKE_TEXT)
         button:Enable()
     else
-        button:SetText(L["no attachments"])
+        button:SetText(EMPTY_TEXT)
         button:Disable()
     end
 end
