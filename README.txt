@@ -47,6 +47,7 @@ Important compatibility notes
 - Some legacy spellbook, chat and item APIs in the retained original modules
   may need additional per-build adaptation if the client has removed them.
 - Keep a backup of WTF\Account\...\SavedVariables\TUI.lua before first launch.
+<<<<<<< HEAD
 
 
 TUI 2.2.0 - Inspector module
@@ -64,3 +65,5 @@ The Inspector uses guarded API calls and does not evaluate arbitrary Lua code.
 Macro conditional support and stance/form numbering must be verified against
 the current WoW: Infinite client. API-observed values are not guaranteed to
 be identical to secure macro-condition evaluation.
+=======
+>>>>>>> 923dd8689d3fdaaa16fce177b5eb2fe37452b184
