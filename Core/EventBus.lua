@@ -18,12 +18,15 @@ local function refreshEvent(event)
             else
                 listeners[event] = nil
                 report("无法注册事件 " .. tostring(event) .. ": " .. tostring(err))
+                return false
             end
         end
+        return registered[event] == true
     elseif registered[event] then
         pcall(eventFrame.UnregisterEvent, eventFrame, event)
         registered[event] = nil
     end
+    return true
 end
 
 function TUI_Events:Register(event, owner, callback)
@@ -34,8 +37,7 @@ function TUI_Events:Register(event, owner, callback)
         if entry.owner == owner and entry.callback == callback then return false end
     end
     table.insert(listeners[event], { owner = owner, callback = callback })
-    refreshEvent(event)
-    return true
+    return refreshEvent(event)
 end
 
 function TUI_Events:UnregisterOwner(owner)
