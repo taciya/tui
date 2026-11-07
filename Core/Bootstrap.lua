@@ -1,6 +1,6 @@
 -- TUI Core bootstrap. Loaded before feature files.
 TUI = TUI or {}
-TUI.version = "2.0.0"
+TUI.version = "2.2.1"
 TUI.modules = TUI.modules or {}
 TUI._moduleOrder = TUI._moduleOrder or {}
 TUI.initialized = TUI.initialized or false
