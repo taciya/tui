@@ -1,0 +1,19 @@
+## Interface: 16001
+## Title: TUI
+## Notes: Modular utility addon for World of Warcraft: Infinite
+## Version: 2.2.0
+## Author: TUI
+## SavedVariables: TUI_DB,TUI_Mail_List,TUI_ItemDB,TUI_Rubbish,TUI_SpellInfo,TUI_DropDownDB,DCP_Saved,QBar_Config,TUI_IgnoreList,oGlowDB
+
+Core/Bootstrap.lua
+Core/Compat.lua
+Core/Database.lua
+Core/EventBus.lua
+TUI_Inspector.lua
+TUI_API.lua
+Localization.lua
+TUI.xml
+TUI_Binds.xml
+TUI_PlayerLinkMenu.lua
+Attachments.lua
+TUI_ItemRack.lua
