@@ -154,17 +154,17 @@ if not _G.TUI_PlayerLinkMenuInstalled then
 end
 
 function ChatBar_UseChatType(chatType, target)
-	if not chatType or not ChatEdit_ChooseBoxForSend then return end
+	if type(chatType) ~= "string" or not ChatEdit_ChooseBoxForSend then return end
 	local editBox = ChatEdit_ChooseBoxForSend()
 	if not editBox then return end
 	local chatFrame = editBox.chatFrame or DEFAULT_CHAT_FRAME
-	
-	local chatType, channelIndex = string.gmatch(chatType, "([^%d]*)([%d]*)$")();
-	
+	local parsedType, channelIndex = string.match(chatType, "([^%d]*)([%d]*)$")
+	chatType = parsedType or chatType
+
 	if chatType == "WHISPER" or chatType == "BN_WHISPER" then
-		target = ChatEdit_GetLastToldTarget();
+		target = (ChatEdit_GetLastToldTarget and ChatEdit_GetLastToldTarget()) or ""
 		if target == "" then
-			target = ChatEdit_GetLastTellTarget();
+			target = (ChatEdit_GetLastTellTarget and ChatEdit_GetLastTellTarget()) or ""
 		end
 		if target == "" then
 			--start new (bn) whisper
@@ -178,16 +178,15 @@ function ChatBar_UseChatType(chatType, target)
 		end
 		
 	elseif chatType == "BN_CONVERSATION" then
-		target = ChatBar_GetLastBNConversationInTarget();
+		target = (ChatBar_GetLastBNConversationInTarget and ChatBar_GetLastBNConversationInTarget()) or ""
 		if target == "" then
-			target = ChatBar_GetLastBNConversationOutTarget();
+			target = (ChatBar_GetLastBNConversationOutTarget and ChatBar_GetLastBNConversationOutTarget()) or ""
 		end
 		if target == "" then
 			target = (GetFirstBNConversation and GetFirstBNConversation()) or "";
 		end
 		if target == "" then
-			--start new bn conversation
-			BNConversationInvite_NewConversation();
+			if BNConversationInvite_NewConversation then BNConversationInvite_NewConversation() end
 		else
 			--target = target + MAX_WOW_CHAT_CHANNELS;
 			ChatEdit_ActivateChat(editBox);
@@ -199,13 +198,14 @@ function ChatBar_UseChatType(chatType, target)
 	elseif string.upper(chatType) == "CHANNEL" then
 		if target then
 			if type(target) == "string" then
-				target = GetChannelName(target);
+				target = GetChannelName(target)
 			end
-		elseif channelIndex then
-			target = tonumber(channelIndex);
+		elseif channelIndex and channelIndex ~= "" then
+			target = tonumber(channelIndex)
 		else
 			return
 		end
+		if not target or target == 0 then return end
 		ChatEdit_ActivateChat(editBox);
 		editBox:SetAttribute("channelTarget", target);
 		editBox:SetAttribute("chatType", "CHANNEL");
@@ -219,7 +219,7 @@ function ChatBar_UseChatType(chatType, target)
 	
 	local text = (editBox:GetText() or "");
 	
-	if ChatEdit_GetLastTellTarget() == "" and chatType ~= "WHISPER" and chatType ~= "BN_WHISPER"
+	if (not ChatEdit_GetLastTellTarget or ChatEdit_GetLastTellTarget() == "") and chatType ~= "WHISPER" and chatType ~= "BN_WHISPER"
 			and string.sub(text, 1, 3) == "/w " then
 		ChatFrame_OpenChat("", chatFrame);
 	end
