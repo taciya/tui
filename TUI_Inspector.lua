@@ -17,18 +17,24 @@ local function safeCall(fn, ...)
     return unpackValues(results, 2, results.n)
 end
 
-local function fmt(value)
+local function fmt(value, depth)
     if value == nil then return "nil" end
     if type(value) == "boolean" then return value and "true" or "false" end
+    depth = depth or 0
+    if depth > 3 then return "{…}" end
     if type(value) == "table" then
         local out = {}
-        for k, v in pairs(value) do
-            out[#out + 1] = tostring(k) .. "=" .. fmt(v)
-        end
+        local ok = pcall(function()
+            for k, v in pairs(value) do
+                out[#out + 1] = tostring(k) .. "=" .. fmt(v, depth + 1)
+            end
+        end)
+        if not ok then return "<受限数据>" end
         table.sort(out)
         return "{" .. table.concat(out, ", ") .. "}"
     end
-    return tostring(value)
+    local ok, result = pcall(tostring, value)
+    return ok and result or "<受限数据>"
 end
 
 local function spellInfo(query)
@@ -117,11 +123,16 @@ local function getStateLines()
     local lines = {"=== 玩家实时状态 ==="}
     local form = safeCall(GetShapeshiftForm)
     addLine(lines, "GetShapeshiftForm()", form)
-    local count = safeCall(GetNumShapeshiftForms) or 0
-    addLine(lines, "形态数量", count)
-    if GetShapeshiftFormInfo and count > 0 then
+    local count = safeCall(GetNumShapeshiftForms)
+    local safeCount = 0
+    local countOK = pcall(function()
+        if type(count) == "number" and count > 0 then safeCount = math.min(40, math.floor(count)) end
+    end)
+    if not countOK then safeCount = 0 end
+    addLine(lines, "形态数量", countOK and safeCount or "<受限数据>")
+    if GetShapeshiftFormInfo and safeCount > 0 then
         lines[#lines + 1] = "形态列表："
-        for i = 1, count do
+        for i = 1, safeCount do
             local icon, name, active, castable = safeCall(GetShapeshiftFormInfo, i)
             lines[#lines + 1] = string.format("  #%d name=%s active=%s castable=%s icon=%s", i, fmt(name), fmt(active), fmt(castable), fmt(icon))
         end
@@ -138,7 +149,12 @@ local function getStateLines()
     addLine(lines, "InstanceType", instanceType)
     lines[#lines + 1] = ""
     lines[#lines + 1] = "=== 当前宏条件的可观测近似值 ==="
-    addLine(lines, "形态索引大于 0", type(form) == "number" and form > 0)
+    local hasForm = "<不可读取>"
+    local formOK, formValue = pcall(function()
+        return type(form) == "number" and form > 0
+    end)
+    if formOK then hasForm = formValue end
+    addLine(lines, "形态索引大于 0", hasForm)
     addLine(lines, "[stealth]", safeCall(IsStealthed))
     addLine(lines, "[combat]", safeCall(UnitAffectingCombat, "player"))
     addLine(lines, "说明", "宏条件由安全宏系统判定；此处是 API 观测值，不保证与宏解析器完全等价。")
