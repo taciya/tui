@@ -26,7 +26,13 @@ end
 local TUI_PLM={
 	["LEFT"]={
 		["SHIFT"]=function(name)
-			InviteUnit(name);
+			-- Modern clients expose the invite API through C_PartyInfo.
+			local invite = (C_PartyInfo and C_PartyInfo.InviteUnit) or InviteUnit or InviteByName
+			if invite then
+				invite(name)
+			elseif DEFAULT_CHAT_FRAME then
+				DEFAULT_CHAT_FRAME:AddMessage("当前客户端没有可用的组队邀请接口")
+			end
 		end,
 		["ALT"]=function(name)
 			if C_FriendList and C_FriendList.SendWho then C_FriendList.SendWho("n-"..name) elseif SendWho then SendWho("n-"..name) end;
