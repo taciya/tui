@@ -199,10 +199,9 @@ function TUI_SendMsg(msg)
 
 	-- GetChannelList 返回 id、name、disabled 三个字段为一组。
 	local channels = { GetChannelList() }
-	local sent, skipped = 0, 0
+	local sent = 0
 	for index = 1, #channels, 3 do
 		local channelID = tonumber(channels[index])
-		local channelName = channels[index + 1]
 		local disabled = channels[index + 2]
 		if channelID and channelID > 0 and not disabled then
 			sendChat(msg, "CHANNEL", nil, channelID)
@@ -213,7 +212,7 @@ function TUI_SendMsg(msg)
 	if sent == 0 then
 		TUI_Print("没有成功发送：请确认已加入聊天频道，并检查频道发送权限")
 	else
-		TUI_Print("已向 " .. sent .. " 个频道发送消息" .. (skipped > 0 and ("，失败 " .. skipped .. " 个") or ""))
+		TUI_Print("已向 " .. sent .. " 个频道发送消息")
 	end
 end
 SlashCmdList["TUIHANHUA"]=TUI_SendMsg;
