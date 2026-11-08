@@ -180,56 +180,40 @@ TUI_SendMessages={
 --SendChatMessage("text" [, "chatType" [, "language" [, "channel"]]])
 
 function TUI_SendMsg(msg)
-	-- 对着玩家使用 /th 时，按职业发送对应的求助语。
-	if UnitExists and UnitExists("target") and UnitIsPlayer and UnitIsPlayer("target") then
-		local _, class = UnitClass("target")
-		local targetName = UnitName("target")
-		if targetName and TUI_SendMessages[class] then
-			if not SendChatMessage then
-				TUI_Print("当前客户端不支持聊天发送 API")
-				return
-			end
-			SendChatMessage(TUI_SendMessages[class], "WHISPER", GetDefaultLanguage and GetDefaultLanguage() or nil, targetName)
-			return
-		end
-	end
-
 	msg = trim and trim(msg or "") or (msg or "")
 	if msg == "" then
-		TUI_Print("用法：/th <消息>（对玩家使用时，会按职业发送对应求助语）")
+		TUI_Print("用法：/th <消息> —— 将消息发送到所有已加入的聊天频道")
 		return
 	end
-	if not SendChatMessage then
+
+	-- 不同客户端版本可能使用全局 SendChatMessage 或 C_ChatInfo 命名空间。
+	local sendChat = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
+	if not sendChat then
 		TUI_Print("当前客户端不支持聊天发送 API")
 		return
 	end
-
-	-- 优先使用 GetChannelList 返回的实际频道 ID/名称对，避免把频道序号误当作频道 ID。
-	local sent = 0
-	if GetChannelList then
-		local channels = { GetChannelList() }
-		for index = 1, #channels, 2 do
-			local channelID = tonumber(channels[index])
-			if channelID and channelID > 0 then
-				SendChatMessage(msg, "CHANNEL", GetDefaultLanguage and GetDefaultLanguage() or nil, channelID)
-				sent = sent + 1
-			end
-		end
-	elseif GetChannelName then
-		-- 兼容未提供 GetChannelList 的旧客户端。
-		for index = 1, (MAX_WOW_CHAT_CHANNELS or 20) do
-			local channelID = GetChannelName(index)
-			if type(channelID) == "number" and channelID > 0 then
-				SendChatMessage(msg, "CHANNEL", GetDefaultLanguage and GetDefaultLanguage() or nil, channelID)
-				sent = sent + 1
-			end
-		end
-	else
-		TUI_Print("当前客户端不支持频道查询 API")
+	if not GetChannelList then
+		TUI_Print("当前客户端不支持 GetChannelList，无法读取已加入频道")
 		return
 	end
 
-	if sent == 0 then TUI_Print("没有检测到已加入的聊天频道，消息未发送") end
+	-- GetChannelList 返回 id、name、disabled 三个字段为一组。
+	local channels = { GetChannelList() }
+	local sent = 0
+	for index = 1, #channels, 3 do
+		local channelID = tonumber(channels[index])
+		local disabled = channels[index + 2]
+		if channelID and channelID > 0 and not disabled then
+			sendChat(msg, "CHANNEL", nil, channelID)
+			sent = sent + 1
+		end
+	end
+
+	if sent == 0 then
+		TUI_Print("没有成功发送：请确认已加入聊天频道，并检查频道发送权限")
+	else
+		TUI_Print("已向 " .. sent .. " 个频道发送消息")
+	end
 end
 SlashCmdList["TUIHANHUA"]=TUI_SendMsg;
 SLASH_TUIHANHUA1="/TUIHANHUA";
