@@ -205,13 +205,8 @@ function TUI_SendMsg(msg)
 		local channelName = channels[index + 1]
 		local disabled = channels[index + 2]
 		if channelID and channelID > 0 and not disabled then
-			local ok, err = pcall(sendChat, msg, "CHANNEL", nil, channelID)
-			if ok then
-				sent = sent + 1
-			else
-				skipped = skipped + 1
-				TUI_Print("频道发送失败 [" .. tostring(channelName or channelID) .. "]：" .. tostring(err))
-			end
+			sendChat(msg, "CHANNEL", nil, channelID)
+			sent = sent + 1
 		end
 	end
 
