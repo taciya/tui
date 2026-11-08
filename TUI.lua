@@ -180,24 +180,56 @@ TUI_SendMessages={
 --SendChatMessage("text" [, "chatType" [, "language" [, "channel"]]])
 
 function TUI_SendMsg(msg)
-	local _, class = UnitClass("target")
-	if UnitExists("target") and UnitIsPlayer("target") and TUI_SendMessages[class] then
-		SendChatMessage(TUI_SendMessages[class], "WHISPER", GetDefaultLanguage(), UnitName("target"))
+	-- 对着玩家使用 /th 时，按职业发送对应的求助语。
+	if UnitExists and UnitExists("target") and UnitIsPlayer and UnitIsPlayer("target") then
+		local _, class = UnitClass("target")
+		local targetName = UnitName("target")
+		if targetName and TUI_SendMessages[class] then
+			if not SendChatMessage then
+				TUI_Print("当前客户端不支持聊天发送 API")
+				return
+			end
+			SendChatMessage(TUI_SendMessages[class], "WHISPER", GetDefaultLanguage and GetDefaultLanguage() or nil, targetName)
+			return
+		end
+	end
+
+	msg = trim and trim(msg or "") or (msg or "")
+	if msg == "" then
+		TUI_Print("用法：/th <消息>（对玩家使用时，会按职业发送对应求助语）")
 		return
 	end
-	msg = trim and trim(msg or "") or (msg or "")
-	if msg == "" then return end
-	-- 只发送到实际加入的频道，频道编号以客户端返回值为准。
-	if not GetChannelName then
+	if not SendChatMessage then
+		TUI_Print("当前客户端不支持聊天发送 API")
+		return
+	end
+
+	-- 优先使用 GetChannelList 返回的实际频道 ID/名称对，避免把频道序号误当作频道 ID。
+	local sent = 0
+	if GetChannelList then
+		local channels = { GetChannelList() }
+		for index = 1, #channels, 2 do
+			local channelID = tonumber(channels[index])
+			if channelID and channelID > 0 then
+				SendChatMessage(msg, "CHANNEL", GetDefaultLanguage and GetDefaultLanguage() or nil, channelID)
+				sent = sent + 1
+			end
+		end
+	elseif GetChannelName then
+		-- 兼容未提供 GetChannelList 的旧客户端。
+		for index = 1, (MAX_WOW_CHAT_CHANNELS or 20) do
+			local channelID = GetChannelName(index)
+			if type(channelID) == "number" and channelID > 0 then
+				SendChatMessage(msg, "CHANNEL", GetDefaultLanguage and GetDefaultLanguage() or nil, channelID)
+				sent = sent + 1
+			end
+		end
+	else
 		TUI_Print("当前客户端不支持频道查询 API")
 		return
 	end
-	for index = 1, 6 do
-		local channelID = GetChannelName(index)
-		if type(channelID) == "number" and channelID > 0 then
-			SendChatMessage(msg, "CHANNEL", GetDefaultLanguage(), channelID)
-		end
-	end
+
+	if sent == 0 then TUI_Print("没有检测到已加入的聊天频道，消息未发送") end
 end
 SlashCmdList["TUIHANHUA"]=TUI_SendMsg;
 SLASH_TUIHANHUA1="/TUIHANHUA";
