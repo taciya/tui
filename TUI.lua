@@ -335,10 +335,6 @@ function TUI_OnEvent(self, event, ...)
 			local ok, err = pcall(Load_TUI_Button_ByClass)
 			if not ok then TUI_Print("职业功能初始化失败：" .. tostring(err)) end
 		end
-		if Load_TUI_Button_CMD then
-			local ok, err = pcall(Load_TUI_Button_CMD)
-			if not ok then TUI_Print("命令按钮初始化失败：" .. tostring(err)) end
-		end
 		if self and self.UnregisterEvent then self:UnregisterEvent("PLAYER_LOGIN") end
 	end
 end
@@ -599,46 +595,6 @@ hooksecurefunc("UnitFrame_Update", function(self)
     end
 end)
 --]]
-
-------------------------------------------------------------
--- TUI命令按钮
-------------------------------------------------------------
-function Load_TUI_Button_CMD()
-	local definitions = {
-		{ key = "SPELLS", text = "法", macro = "/ps", tooltip = "打印当前角色技能及 ID", index = 0 },
-		{ key = "ITEMS", text = "物", macro = "/tuiitems", tooltip = "打印背包及装备物品 ID", index = 1 },
-		{ key = "RELOAD", text = "重", macro = "/reload", tooltip = "重新载入游戏", index = 2 },
-		{ key = "TEST", text = "T", macro = "/ti 12", rightMacro = "/ti 10", middleMacro = "/tuiworldchannel", tooltip = "左键保存 F12，右键保存 F10，中键切换世界频道", index = 3 },
-	}
-	table.sort(definitions, function(a, b) return a.index < b.index end)
-
-	for _, data in ipairs(definitions) do
-		local buttonData = data -- copy the loop value for Lua 5.1 closures
-		local name = "TUI_BUTTON_CMD" .. buttonData.key
-		local button = _G[name] or CreateFrame("Button", name, UIParent, "UIPanelButtonTemplate,SecureActionButtonTemplate")
-		button:RegisterForClicks("LeftButtonUp", "RightButtonUp", "MiddleButtonUp")
-		button:SetAttribute("type1", "macro")
-		button:SetAttribute("macrotext1", buttonData.macro)
-		button:SetAttribute("type2", buttonData.rightMacro and "macro" or nil)
-		button:SetAttribute("macrotext2", buttonData.rightMacro)
-		button:SetAttribute("type3", buttonData.middleMacro and "macro" or nil)
-		button:SetAttribute("macrotext3", buttonData.middleMacro)
-		button:ClearAllPoints()
-		button:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 4 + 31 * buttonData.index, 4)
-		button:SetSize(26, 26)
-		button:SetText(buttonData.text)
-		button:SetScript("OnEnter", function(self)
-			if not GameTooltip then return end
-			GameTooltip:SetOwner(self, "ANCHOR_TOP")
-			GameTooltip:SetText(buttonData.tooltip or buttonData.text)
-			GameTooltip:Show()
-		end)
-		button:SetScript("OnLeave", function()
-			if GameTooltip then GameTooltip:Hide() end
-		end)
-		button:Show()
-	end
-end
 
 SlashCmdList["TUIWORLDCHANNEL"] = function() Join_DJSJPD() end
 SLASH_TUIWORLDCHANNEL1 = "/tuiworldchannel"
