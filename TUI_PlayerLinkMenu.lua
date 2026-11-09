@@ -35,7 +35,14 @@ local TUI_PLM={
 			end
 		end,
 		["ALT"]=function(name)
-			if C_FriendList and C_FriendList.SendWho then C_FriendList.SendWho("n-"..name) elseif SendWho then SendWho("n-"..name) end;
+			local query = 'n-"' .. name .. '"'
+			if C_FriendList and C_FriendList.SendWho then
+				C_FriendList.SendWho(query)
+			elseif SendWho then
+				SendWho(query)
+			elseif DEFAULT_CHAT_FRAME then
+				DEFAULT_CHAT_FRAME:AddMessage("当前客户端没有可用的玩家查询接口")
+			end
 			
 		end,
 		["CTRL"]=function(name)
