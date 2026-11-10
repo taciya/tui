@@ -40,6 +40,26 @@ local function parseRecipeRow(row)
     return recipe
 end
 
+local function rebuildIndexes(profession)
+    profession.bySpellID = {}
+    profession.byIngredient = {}
+    profession.byOutput = {}
+    for _, recipe in ipairs(profession.recipes or {}) do
+        profession.bySpellID[recipe.spellID] = recipe
+        if recipe.outputItemID then
+            profession.byOutput[recipe.outputItemID] = profession.byOutput[recipe.outputItemID] or {}
+            table.insert(profession.byOutput[recipe.outputItemID], recipe)
+        end
+        for _, reagent in ipairs(recipe.reagents or {}) do
+            profession.byIngredient[reagent.itemID] = profession.byIngredient[reagent.itemID] or {}
+            table.insert(profession.byIngredient[reagent.itemID], {
+                recipe = recipe,
+                count = reagent.count,
+            })
+        end
+    end
+end
+
 function Enhancer:RegisterProfession(key, definition)
     if type(key) ~= "string" or type(definition) ~= "table" then return false end
     local profession = {
@@ -54,20 +74,9 @@ function Enhancer:RegisterProfession(key, definition)
 
     for _, row in ipairs(definition.rows or {}) do
         local recipe = parseRecipeRow(row)
-        if recipe then
-            profession.recipes[#profession.recipes + 1] = recipe
-            profession.bySpellID[recipe.spellID] = recipe
-            profession.byOutput[recipe.outputItemID] = profession.byOutput[recipe.outputItemID] or {}
-            table.insert(profession.byOutput[recipe.outputItemID], recipe)
-            for _, reagent in ipairs(recipe.reagents) do
-                profession.byIngredient[reagent.itemID] = profession.byIngredient[reagent.itemID] or {}
-                table.insert(profession.byIngredient[reagent.itemID], {
-                    recipe = recipe,
-                    count = reagent.count,
-                })
-            end
-        end
+        if recipe then profession.recipes[#profession.recipes + 1] = recipe end
     end
+    rebuildIndexes(profession)
 
     self.professions = self.professions or {}
     self.professions[key] = profession
@@ -91,6 +100,7 @@ local function getCharacterStore()
     local character = root.characters[key]
     character.learned = character.learned or {}
     character.professions = character.professions or {}
+    character.recipeData = character.recipeData or {}
     return character
 end
 
@@ -143,27 +153,77 @@ function Enhancer:ScanCurrentProfession(silent)
         return false
     end
 
-    local available = {}
-    for _, recipeID in ipairs(recipeIDs) do
-        available[tonumber(recipeID)] = true
-    end
-
     local character = getCharacterStore()
     local learned = character.learned[selected.key] or {}
+    local fallbackBySpellID = selected.bySpellID or {}
+    local scannedRecipes = {}
     local scanned, learnedCount, unlearnedCount = 0, 0, 0
 
-    -- GetAllRecipeIDs includes both learned and unlearned recipes on this client.
-    -- A recipe absent from the returned list is left unknown, not guessed as unlearned.
-    for _, recipe in ipairs(selected.recipes) do
-        if available[recipe.spellID] then
-            local recipeInfo = safeCall(C_TradeSkillUI.GetRecipeInfo, recipe.spellID)
+    -- GetAllRecipeIDs includes learned and unlearned recipes. Prefer the live
+    -- client schematic for output/reagent IDs; retain bundled data as a fallback.
+    for _, rawRecipeID in ipairs(recipeIDs) do
+        local recipeID = tonumber(rawRecipeID)
+        if recipeID then
+            local recipeInfo = safeCall(C_TradeSkillUI.GetRecipeInfo, recipeID)
+            local fallback = fallbackBySpellID[recipeID]
+            local schematic
+            if C_TradeSkillUI.GetRecipeSchematic then
+                schematic = safeCall(C_TradeSkillUI.GetRecipeSchematic, recipeID, false)
+            end
+
+            local recipe = {
+                spellID = recipeID,
+                name = recipeInfo and recipeInfo.name or (fallback and fallback.name),
+                outputItemID = fallback and fallback.outputItemID,
+                minQty = fallback and fallback.minQty,
+                maxQty = fallback and fallback.maxQty,
+                yellowAt = fallback and fallback.yellowAt,
+                greyAt = fallback and fallback.greyAt,
+                reagents = {},
+            }
+
+            if type(schematic) == "table" then
+                recipe.outputItemID = tonumber(schematic.outputItemID) or recipe.outputItemID
+                recipe.minQty = tonumber(schematic.quantityMin) or recipe.minQty
+                recipe.maxQty = tonumber(schematic.quantityMax) or recipe.maxQty
+                local basicType = Enum and Enum.CraftingReagentType and Enum.CraftingReagentType.Basic
+                for _, slot in ipairs(schematic.reagentSlotSchematics or {}) do
+                    local isBasic = basicType == nil or slot.reagentType == nil or slot.reagentType == basicType
+                    if isBasic then
+                        for _, reagent in ipairs(slot.reagents or {}) do
+                            local itemID = tonumber(reagent.itemID)
+                            if itemID then
+                                recipe.reagents[#recipe.reagents + 1] = {
+                                    itemID = itemID,
+                                    count = tonumber(slot.quantityRequired) or 1,
+                                }
+                            end
+                        end
+                    end
+                end
+            end
+
+            if #recipe.reagents == 0 and fallback then
+                recipe.reagents = fallback.reagents
+            end
+
             if recipeInfo and type(recipeInfo.learned) == "boolean" then
-                learned[tostring(recipe.spellID)] = recipeInfo.learned
+                learned[tostring(recipeID)] = recipeInfo.learned
                 scanned = scanned + 1
                 if recipeInfo.learned then learnedCount = learnedCount + 1
                 else unlearnedCount = unlearnedCount + 1 end
             end
+
+            if #recipe.reagents > 0 then
+                scannedRecipes[#scannedRecipes + 1] = recipe
+            end
         end
+    end
+
+    if #scannedRecipes > 0 then
+        selected.recipes = scannedRecipes
+        rebuildIndexes(selected)
+        character.recipeData[selected.key] = scannedRecipes
     end
 
     character.learned[selected.key] = learned
@@ -195,7 +255,9 @@ local function getItemIDFromTooltip(tooltip)
     return tonumber(link and string.match(link, "item:(%d+)"))
 end
 
-local function getRecipeName(spellID)
+local function getRecipeName(recipe)
+    if recipe.name then return recipe.name end
+    local spellID = recipe.spellID
     local name = TUI_Compat and TUI_Compat.GetSpellNameByID and TUI_Compat.GetSpellNameByID(spellID)
     if name then return name end
     if C_Spell and C_Spell.GetSpellInfo then
@@ -237,7 +299,7 @@ local function appendRecipeLines(tooltip, title, matches, character, profession,
             skill = string.format("  黄字 %d / 灰字 %d", recipe.yellowAt, recipe.greyAt)
         end
         tooltip:AddLine(string.format("%s  %s%s%s",
-            state, getRecipeName(recipe.spellID), extra, skill), r, g, b, true)
+            state, getRecipeName(recipe), extra, skill), r, g, b, true)
     end
     if #matches > shown then
         tooltip:AddLine(string.format("另有 %d 个配方未显示", #matches - shown), 0.75, 0.75, 0.75, true)
@@ -304,6 +366,15 @@ SLASH_TUIITEMINFO2 = "/tii"
 SlashCmdList.TUIITEMINFO = handleCommand
 
 local function initialize()
+    local character = getCharacterStore()
+    for key, profession in pairs(Enhancer.professions) do
+        local savedRecipes = character.recipeData[key]
+        if type(savedRecipes) == "table" and #savedRecipes > 0 then
+            profession.recipes = savedRecipes
+            rebuildIndexes(profession)
+        end
+    end
+
     if GameTooltip and GameTooltip.HookScript then
         GameTooltip:HookScript("OnTooltipSetItem", function(tooltip)
             Enhancer:OnTooltipSetItem(tooltip)
