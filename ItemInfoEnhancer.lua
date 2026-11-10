@@ -174,6 +174,7 @@ function Enhancer:ScanCurrentProfession(silent)
             local recipe = {
                 spellID = recipeID,
                 name = recipeInfo and recipeInfo.name or (fallback and fallback.name),
+                minSkill = recipeInfo and (tonumber(recipeInfo.minSkill) or tonumber(recipeInfo.requiredSkill)),
                 outputItemID = fallback and fallback.outputItemID,
                 minQty = fallback and fallback.minQty,
                 maxQty = fallback and fallback.maxQty,
@@ -283,14 +284,35 @@ local function getRecipeName(recipe)
     return "配方 #" .. tostring(spellID)
 end
 
-local function learnedState(character, profession, recipe)
+local function recipeTextColor(character, profession, recipe)
     local learned = character.learned[profession.key]
-    local state = learned and learned[tostring(recipe.spellID)]
-    if state == true then return "已学会", 0.25, 1, 0.25 end
-    if state == false then return "未学会", 1, 0.45, 0.35 end
-    local scan = character.professions[profession.key]
-    if scan and scan.scannedAt then return "客户端未返回", 0.8, 0.8, 0.8 end
-    return "待扫描", 0.8, 0.8, 0.8
+    if not learned or learned[tostring(recipe.spellID)] ~= true then
+        return 0.55, 0.55, 0.55
+    end
+
+    local info = currentProfessionInfo()
+    local skillLevel = info and tonumber(info.skillLevel)
+    if not skillLevel then
+        local scan = character.professions[profession.key]
+        skillLevel = scan and tonumber(scan.skillLevel)
+    end
+    if not skillLevel then return 1, 1, 1 end
+
+    local yellowAt = tonumber(recipe.yellowAt)
+    local greyAt = tonumber(recipe.greyAt)
+    if yellowAt and greyAt then
+        if skillLevel < yellowAt then return 1, 0.5, 0.25 end
+        local greenAt = yellowAt + (greyAt - yellowAt) * 0.5
+        if skillLevel < greenAt then return 1, 1, 0 end
+        if skillLevel < greyAt then return 0.25, 1, 0.25 end
+        return 0.65, 0.65, 0.65
+    end
+    return 1, 1, 1
+end
+
+local function requiredSkillText(recipe)
+    local required = tonumber(recipe.minSkill) or tonumber(recipe.requiredSkill)
+    return required and tostring(required) or "—"
 end
 
 local function appendRecipeLines(tooltip, title, matches, character, profession, isIngredient)
@@ -302,20 +324,14 @@ local function appendRecipeLines(tooltip, title, matches, character, profession,
         return ar.spellID < br.spellID
     end)
 
-    tooltip:AddLine(title, 1, 0.82, 0)
     local shown = math.min(#matches, MAX_TOOLTIP_RECIPES)
     for i = 1, shown do
         local match = matches[i]
         local recipe = match.recipe or match
-        local state, r, g, b = learnedState(character, profession, recipe)
-        local extra = ""
-        if isIngredient then extra = string.format("  材料 ×%d", match.count or 1) end
-        local skill = ""
-        if recipe.yellowAt and recipe.greyAt then
-            skill = string.format("  黄字 %d / 灰字 %d", recipe.yellowAt, recipe.greyAt)
-        end
-        tooltip:AddLine(string.format("%s  %s%s%s",
-            state, getRecipeName(recipe), extra, skill), r, g, b, true)
+        local r, g, b = recipeTextColor(character, profession, recipe)
+        local quantity = isIngredient and (match.count or 1) or (recipe.minQty or 1)
+        tooltip:AddLine(string.format("%s   x%d   %s",
+            getRecipeName(recipe), quantity, requiredSkillText(recipe)), r, g, b, true)
     end
     if #matches > shown then
         tooltip:AddLine(string.format("另有 %d 个配方未显示", #matches - shown), 0.75, 0.75, 0.75, true)
