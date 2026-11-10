@@ -250,9 +250,25 @@ local function scheduleScan()
 end
 
 local function getItemIDFromTooltip(tooltip)
-    if not tooltip or type(tooltip.GetItem) ~= "function" then return nil end
-    local _, link = safeCall(tooltip.GetItem, tooltip)
-    return tonumber(link and string.match(link, "item:(%d+)"))
+    if not tooltip then return nil end
+
+    -- Tooltip APIs differ between client builds. Prefer the structured tooltip
+    -- data ID, then the direct item ID, and finally the legacy hyperlink.
+    if type(tooltip.GetTooltipData) == "function" then
+        local data = safeCall(tooltip.GetTooltipData, tooltip)
+        local itemID = data and tonumber(data.id)
+        if itemID then return itemID end
+    end
+    if type(tooltip.GetItemID) == "function" then
+        local itemID = tonumber(safeCall(tooltip.GetItemID, tooltip))
+        if itemID then return itemID end
+    end
+    if type(tooltip.GetItem) == "function" then
+        local _, link = safeCall(tooltip.GetItem, tooltip)
+        local itemID = tonumber(link and string.match(link, "item:(%d+)"))
+        if itemID then return itemID end
+    end
+    return nil
 end
 
 local function getRecipeName(recipe)
@@ -375,9 +391,29 @@ local function initialize()
         end
     end
 
-    if GameTooltip and GameTooltip.HookScript then
-        GameTooltip:HookScript("OnTooltipSetItem", function(tooltip)
-            Enhancer:OnTooltipSetItem(tooltip)
+    -- Hook the main item tooltip and the common reference tooltip. Some
+    -- client builds expose item identity through TooltipDataProcessor rather
+    -- than the legacy GetItem() hyperlink, handled by getItemIDFromTooltip().
+    local hooked = {}
+    local function hookItemTooltip(tooltip)
+        if not tooltip or hooked[tooltip] or type(tooltip.HookScript) ~= "function" then return end
+        hooked[tooltip] = true
+        tooltip:HookScript("OnTooltipSetItem", function(frame)
+            Enhancer:OnTooltipSetItem(frame)
+        end)
+    end
+
+    hookItemTooltip(GameTooltip)
+    hookItemTooltip(ItemRefTooltip)
+
+    -- Modern tooltip pipeline fallback. Guard against duplicate attachment
+    -- when a frame is also covered by the legacy script hook.
+    if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall
+        and Enum and Enum.TooltipDataType and Enum.TooltipDataType.Item then
+        TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip)
+            if not hooked[tooltip] then
+                Enhancer:OnTooltipSetItem(tooltip)
+            end
         end)
     end
 
