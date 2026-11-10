@@ -323,25 +323,33 @@ local function appendRecipeLines(tooltip, title, matches, character, profession,
     return shown
 end
 
-function Enhancer:OnTooltipSetItem(tooltip)
-    local itemID = getItemIDFromTooltip(tooltip)
-    if not itemID then return end
+function Enhancer:OnTooltipSetItem(tooltip, suppliedItemID)
+    local itemID = tonumber(suppliedItemID) or getItemIDFromTooltip(tooltip)
+    if not itemID or not tooltip or type(tooltip.AddLine) ~= "function" then return end
 
     local character = getCharacterStore()
     local hasLines = false
+    local matchCount = 0
     for _, profession in pairs(self.professions) do
         local usedBy = profession.byIngredient[itemID]
         local madeBy = profession.byOutput[itemID]
         if usedBy and #usedBy > 0 then
+            matchCount = matchCount + #usedBy
             appendRecipeLines(tooltip, profession.label .. "用途", usedBy, character, profession, true)
             hasLines = true
         end
         if madeBy and #madeBy > 0 then
+            matchCount = matchCount + #madeBy
             appendRecipeLines(tooltip, profession.label .. "可制作", madeBy, character, profession, false)
             hasLines = true
         end
     end
-    if hasLines then tooltip:Show() end
+    self.lastTooltipDebug = {
+        itemID = itemID,
+        matches = matchCount,
+        hasLines = hasLines,
+    }
+    if hasLines and tooltip.Show then tooltip:Show() end
 end
 
 local function showStatus()
@@ -369,10 +377,26 @@ local function handleCommand(message)
         Enhancer:ScanCurrentProfession(false)
     elseif command == "status" then
         showStatus()
+    elseif command == "debug" then
+        local profession = Enhancer.professions.Cooking
+        local matches = profession and profession.byIngredient[6889] or {}
+        local dataCount = profession and #profession.recipes or 0
+        local route = Enhancer.tooltipHookMode or "未初始化"
+        local last = Enhancer.lastTooltipDebug
+        if TUI and TUI.Print then
+            TUI:Print(string.format("诊断：模块=%s；配方数据=%d；小蛋(6889)匹配=%d；钩子=%s",
+                profession and "已注册" or "未注册", dataCount, #matches, route))
+            if last then
+                TUI:Print(string.format("最近一次 Tooltip：物品ID=%s；匹配配方=%d；已追加=%s",
+                    tostring(last.itemID), last.matches, tostring(last.hasLines)))
+            else
+                TUI:Print("最近一次 Tooltip：尚未捕获到物品")
+            end
+        end
     else
         if TUI and TUI.Print then
             TUI:Print("物品信息增强：鼠标悬停材料可查看烹饪用途；先打开烹饪专业界面同步已学状态。")
-            TUI:Print("命令：/tuiiteminfo scan | status（别名 /tii）")
+            TUI:Print("命令：/tuiiteminfo scan | status | debug（别名 /tii）")
         end
     end
 end
@@ -391,30 +415,29 @@ local function initialize()
         end
     end
 
-    -- Hook the main item tooltip and the common reference tooltip. Some
-    -- client builds expose item identity through TooltipDataProcessor rather
-    -- than the legacy GetItem() hyperlink, handled by getItemIDFromTooltip().
-    local hooked = {}
-    local function hookItemTooltip(tooltip)
-        if not tooltip or hooked[tooltip] or type(tooltip.HookScript) ~= "function" then return end
-        hooked[tooltip] = true
-        tooltip:HookScript("OnTooltipSetItem", function(frame)
-            Enhancer:OnTooltipSetItem(frame)
-        end)
-    end
-
-    hookItemTooltip(GameTooltip)
-    hookItemTooltip(ItemRefTooltip)
-
-    -- Modern tooltip pipeline fallback. Guard against duplicate attachment
-    -- when a frame is also covered by the legacy script hook.
+    -- Prefer the structured tooltip pipeline when available. The previous
+    -- implementation registered the legacy hook first and then suppressed
+    -- the processor callback for the same frame, which could leave clients
+    -- using the processor pipeline without any enhancement lines.
     if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall
         and Enum and Enum.TooltipDataType and Enum.TooltipDataType.Item then
-        TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip)
-            if not hooked[tooltip] then
-                Enhancer:OnTooltipSetItem(tooltip)
-            end
+        TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
+            local itemID = data and tonumber(data.id)
+            Enhancer:OnTooltipSetItem(tooltip, itemID)
         end)
+        Enhancer.tooltipHookMode = "TooltipDataProcessor"
+    else
+        local hooked = {}
+        local function hookItemTooltip(tooltip)
+            if not tooltip or hooked[tooltip] or type(tooltip.HookScript) ~= "function" then return end
+            hooked[tooltip] = true
+            tooltip:HookScript("OnTooltipSetItem", function(frame)
+                Enhancer:OnTooltipSetItem(frame)
+            end)
+        end
+        hookItemTooltip(GameTooltip)
+        hookItemTooltip(ItemRefTooltip)
+        Enhancer.tooltipHookMode = "HookScript"
     end
 
     local eventFrame = CreateFrame("Frame")
