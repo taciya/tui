@@ -17,6 +17,7 @@ TUI.xml
 TUI_Binds.xml
 ItemInfoEnhancer_Data.lua
 ItemInfoEnhancer.lua
+SoloRaidFrame.lua
 TUI_PlayerLinkMenu.lua
 Attachments.lua
 TUI_ItemRack.lua
