@@ -136,8 +136,115 @@ local function equipFromOtherSlot(targetSlot, sourceSlot)
     return true
 end
 
+-- Continue nakedizing only after the client reports an equipment/bag update.
+-- Inventory APIs are asynchronous from the addon's point of view: checking the
+-- equipment slot immediately after PickupContainerItem can still see stale data.
+local nakedizeFrame = CreateFrame("Frame")
+nakedizeFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+nakedizeFrame:RegisterEvent("BAG_UPDATE")
+
+local nakedizeState
+
+local function finishNakedize(stopped, reason)
+    local state = nakedizeState
+    if not state then return end
+    nakedizeState = nil
+
+    if next(state.saved) then
+        state.db.Naked = { active = true, items = state.saved }
+        NakedObj_Nakie = true
+    else
+        state.db.Naked = nil
+        NakedObj_Nakie = false
+    end
+
+    local total = 0
+    for _ in pairs(state.saved) do total = total + 1 end
+
+    if stopped then
+        TUI_Print((reason or "脱装备已停止") .. "；本次成功脱下 " ..
+            state.moved .. " 件，累计记录 " .. total .. " 件")
+    elseif state.moved > 0 then
+        TUI_Print("脱装备完成；本次成功脱下 " .. state.moved .. " 件")
+    else
+        TUI_Print("没有需要脱下的装备")
+    end
+end
+
+local function processNextNakedItem()
+    local state = nakedizeState
+    if not state or state.pending then return end
+
+    while state.index <= #state.order do
+        if InCombatLockdown and InCombatLockdown() then
+            finishNakedize(true, "进入战斗，脱装备操作已停止")
+            return
+        end
+        if CursorHasItem and CursorHasItem() then
+            finishNakedize(true, "鼠标光标上有物品，脱装备操作已停止")
+            return
+        end
+
+        local slot = state.order[state.index]
+        state.index = state.index + 1
+        local slotKey = tostring(slot)
+
+        if not NO_UNDRESS[slot] and not state.saved[slotKey] then
+            local link = GetInventoryItemLink("player", slot)
+            local id = itemID(link)
+            if link and id then
+                local bag, bagSlot = findFreeBagSlot()
+                if not bag then
+                    finishNakedize(true, "背包空位已用完")
+                    return
+                end
+
+                state.pending = { slot = slot, id = tostring(id), link = link }
+                local ok = moveEquippedToBag(slot, bag, bagSlot)
+                if not ok then
+                    state.pending = nil
+                    finishNakedize(true, "装备移动失败：" .. tostring(link))
+                end
+                -- Do not inspect the slot here. Wait for the client update event.
+                return
+            end
+        end
+    end
+
+    finishNakedize(false)
+end
+
+nakedizeFrame:SetScript("OnEvent", function()
+    local state = nakedizeState
+    local pending = state and state.pending
+    if not pending then return end
+
+    -- The item must have left its original slot and the cursor must be clear.
+    -- PLAYER_EQUIPMENT_CHANGED and BAG_UPDATE can arrive at different points;
+    -- either event may provide the first reliable post-move state.
+    if itemID(GetInventoryItemLink("player", pending.slot)) == pending.id then
+        return
+    end
+    if CursorHasItem and CursorHasItem() then
+        return
+    end
+
+    state.saved[tostring(pending.slot)] = pending.id
+    state.moved = state.moved + 1
+    state.db.Naked = { active = true, items = state.saved }
+    NakedObj_Nakie = true
+    state.pending = nil
+
+    processNextNakedItem()
+end)
+
 function TUI_Nakedize()
+    if nakedizeState then
+        TUI_Print("脱装备操作正在进行中")
+        return
+    end
     if not canMoveItems() then return end
+
     local db = playerDB()
     local existing = db.Naked and db.Naked.active and type(db.Naked.items) == "table"
         and db.Naked.items or {}
@@ -159,66 +266,15 @@ function TUI_Nakedize()
         end
     end
 
-    local moved, stopped = 0, false
-    for _, slot in ipairs(undressOrder) do
-        local slotKey = tostring(slot)
-        if not NO_UNDRESS[slot] and not saved[slotKey] then
-            if InCombatLockdown and InCombatLockdown() then
-                stopped = true
-                TUI_Print("进入战斗，脱装备操作已停止")
-                break
-            end
-            if CursorHasItem and CursorHasItem() then
-                stopped = true
-                TUI_Print("鼠标光标上有物品，脱装备操作已停止")
-                break
-            end
-
-            local link = GetInventoryItemLink("player", slot)
-            local id = itemID(link)
-            if link and id then
-                local bag, bagSlot = findFreeBagSlot()
-                if not bag then
-                    stopped = true
-                    TUI_Print("背包空位已用完，脱装备操作已停止")
-                    break
-                end
-
-                -- Perform the move immediately; do not schedule a timer.
-                local ok = moveEquippedToBag(slot, bag, bagSlot)
-                local stillEquipped = itemID(GetInventoryItemLink("player", slot)) == tostring(id)
-                if not ok or stillEquipped then
-                    stopped = true
-                    TUI_Print("装备移动失败，已停止：" .. tostring(link))
-                    break
-                end
-
-                saved[slotKey] = tostring(id)
-                moved = moved + 1
-                -- Save after every verified successful move.
-                db.Naked = { active = true, items = saved }
-                NakedObj_Nakie = true
-            end
-        end
-    end
-
-    if next(saved) then
-        db.Naked = { active = true, items = saved }
-        NakedObj_Nakie = true
-    else
-        db.Naked = nil
-        NakedObj_Nakie = false
-    end
-
-    local total = 0
-    for _ in pairs(saved) do total = total + 1 end
-    if stopped then
-        TUI_Print("脱装备已停止；本次成功脱下 " .. moved .. " 件，累计记录 " .. total .. " 件")
-    elseif moved > 0 then
-        TUI_Print("脱装备完成；本次成功脱下 " .. moved .. " 件")
-    else
-        TUI_Print("没有需要脱下的装备")
-    end
+    nakedizeState = {
+        db = db,
+        saved = saved,
+        order = undressOrder,
+        index = 1,
+        moved = 0,
+        pending = nil,
+    }
+    processNextNakedItem()
 end
 
 function TUI_Dressing()
