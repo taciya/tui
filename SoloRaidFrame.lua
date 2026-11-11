@@ -1,38 +1,38 @@
--- Keep Blizzard's raid-style party frame visible while playing solo.
--- Inspired by the lightweight approach used by Solo Raid Frame NV.
+-- Keep Blizzard's raid frame manager/container visible while playing solo.
+-- Inspired by Solo Raid Frame NV.
 local function isSolo()
-    if IsInGroup then return not IsInGroup() end
     if IsInRaid and IsInRaid() then return false end
+    if IsInGroup then return not IsInGroup() end
     return not (UnitExists and UnitExists("party1"))
 end
 
 local function applySoloRaidFrame()
     if not isSolo() then return end
-    if InCombatLockdown and InCombatLockdown() then return end
 
-    -- Use Blizzard's compact raid-style party frames.
-    if GetCVar and SetCVar and GetCVar("useCompactPartyFrames") ~= "1" then
-        SetCVar("useCompactPartyFrames", "1")
+    -- "IsShown" is backed by raidOptionIsShown. The manager setting expects
+    -- the CVar-style string value ("1"), not a boolean.
+    if SetCVar then
+        pcall(SetCVar, "raidOptionIsShown", "1")
     end
 
     if CompactRaidFrameManager_SetSetting then
-        CompactRaidFrameManager_SetSetting("IsShown", true)
+        pcall(CompactRaidFrameManager_SetSetting, "IsShown", "1")
     end
 
     local manager = _G.CompactRaidFrameManager
     if manager and CompactRaidFrameManager_UpdateShown then
-        CompactRaidFrameManager_UpdateShown(manager)
+        pcall(CompactRaidFrameManager_UpdateShown, manager)
+    elseif manager and manager.Show then
+        pcall(manager.Show, manager)
     end
 
     if CompactRaidFrameManager_UpdateContainerVisibility then
-        CompactRaidFrameManager_UpdateContainerVisibility()
+        pcall(CompactRaidFrameManager_UpdateContainerVisibility)
     end
 
-    -- Some client builds hide the container again when refreshing the
-    -- manager in solo mode. Show it after the Blizzard visibility update.
     local container = _G.CompactRaidFrameContainer
     if container and container.Show then
-        container:Show()
+        pcall(container.Show, container)
     end
 end
 
@@ -42,15 +42,19 @@ TUI:RegisterModule("SoloRaidFrame", function()
     frame:RegisterEvent("GROUP_ROSTER_UPDATE")
     frame:RegisterEvent("PLAYER_REGEN_ENABLED")
     frame:SetScript("OnEvent", function()
+        -- Try immediately even in combat. Protected frame operations may be
+        -- rejected by the client during combat; PLAYER_REGEN_ENABLED retries.
         applySoloRaidFrame()
     end)
 
-    -- Re-apply after Blizzard's raid-frame manager refreshes its visibility.
+    -- Blizzard may refresh visibility after roster/manager updates.
     if hooksecurefunc and CompactRaidFrameManager_UpdateContainerVisibility then
         hooksecurefunc("CompactRaidFrameManager_UpdateContainerVisibility", function()
-            if isSolo() and not (InCombatLockdown and InCombatLockdown()) then
+            if isSolo() then
                 local container = _G.CompactRaidFrameContainer
-                if container and container.Show then container:Show() end
+                if container and container.Show then
+                    pcall(container.Show, container)
+                end
             end
         end)
     end
