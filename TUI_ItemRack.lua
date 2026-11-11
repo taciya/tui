@@ -142,8 +142,8 @@ function TUI_Nakedize()
     local existing = db.Naked and db.Naked.active and type(db.Naked.items) == "table"
         and db.Naked.items or {}
 
-    -- Weapons first, then all other eligible equipment. Neck, rings and
-    -- trinkets remain excluded by NO_UNDRESS.
+    -- Weapons first, then other eligible slots. Neck, rings and trinkets
+    -- remain excluded by NO_UNDRESS.
     local undressOrder = { 16, 17, 18 }
     for slot = 19, 1, -1 do
         if slot ~= 16 and slot ~= 17 and slot ~= 18 then
@@ -154,93 +154,71 @@ function TUI_Nakedize()
     local saved = {}
     for slot, id in pairs(existing) do
         slot, id = tostring(slot), tostring(id)
-        -- Keep only records whose item is no longer in its original slot.
         if itemID(GetInventoryItemLink("player", tonumber(slot))) ~= id then
             saved[slot] = id
         end
     end
 
-    local index = 1
     local moved, stopped = 0, false
+    for _, slot in ipairs(undressOrder) do
+        local slotKey = tostring(slot)
+        if not NO_UNDRESS[slot] and not saved[slotKey] then
+            if InCombatLockdown and InCombatLockdown() then
+                stopped = true
+                TUI_Print("进入战斗，脱装备操作已停止")
+                break
+            end
+            if CursorHasItem and CursorHasItem() then
+                stopped = true
+                TUI_Print("鼠标光标上有物品，脱装备操作已停止")
+                break
+            end
 
-    local function finish()
-        if next(saved) then
-            db.Naked = { active = true, items = saved }
-            NakedObj_Nakie = true
-        else
-            db.Naked = nil
-            NakedObj_Nakie = false
-        end
-
-        if stopped then
-            TUI_Print("背包空位已用完；本次已脱下 " .. moved .. " 件，可再次执行 F9 恢复")
-        elseif moved > 0 then
-            TUI_Print("脱装备完成；本次已脱下 " .. moved .. " 件")
-        else
-            TUI_Print("没有需要脱下的装备")
-        end
-    end
-
-    local function processNext()
-        if InCombatLockdown and InCombatLockdown() then
-            stopped = true
-            TUI_Print("进入战斗，脱装备操作已暂停")
-            finish()
-            return
-        end
-        if CursorHasItem and CursorHasItem() then
-            stopped = true
-            TUI_Print("鼠标光标上有物品，脱装备操作已暂停")
-            finish()
-            return
-        end
-
-        while index <= #undressOrder do
-            local slot = undressOrder[index]
-            index = index + 1
-            local slotKey = tostring(slot)
-            if not NO_UNDRESS[slot] and not saved[slotKey] then
-                local link = GetInventoryItemLink("player", slot)
-                local id = itemID(link)
-                if link and id then
-                    local bag, bagSlot = findFreeBagSlot()
-                    if not bag then
-                        stopped = true
-                        finish()
-                        return
-                    end
-
-                    local ok = moveEquippedToBag(slot, bag, bagSlot)
-                    if not ok or itemID(GetInventoryItemLink("player", slot)) == tostring(id) then
-                        stopped = true
-                        TUI_Print("装备移动未确认成功，已暂停：" .. tostring(link))
-                        finish()
-                        return
-                    end
-
-                    saved[slotKey] = tostring(id)
-                    moved = moved + 1
-                    -- Persist after each successful move so an interrupted
-                    -- sequence can always be resumed or restored.
-                    db.Naked = { active = true, items = saved }
-                    NakedObj_Nakie = true
-
-                    -- Let the client update bag/inventory state before looking
-                    -- for the next free slot and moving the next item.
-                    if C_Timer and C_Timer.After then
-                        C_Timer.After(0.1, processNext)
-                    else
-                        processNext()
-                    end
-                    return
+            local link = GetInventoryItemLink("player", slot)
+            local id = itemID(link)
+            if link and id then
+                local bag, bagSlot = findFreeBagSlot()
+                if not bag then
+                    stopped = true
+                    TUI_Print("背包空位已用完，脱装备操作已停止")
+                    break
                 end
+
+                -- Perform the move immediately; do not schedule a timer.
+                local ok = moveEquippedToBag(slot, bag, bagSlot)
+                local stillEquipped = itemID(GetInventoryItemLink("player", slot)) == tostring(id)
+                if not ok or stillEquipped then
+                    stopped = true
+                    TUI_Print("装备移动失败，已停止：" .. tostring(link))
+                    break
+                end
+
+                saved[slotKey] = tostring(id)
+                moved = moved + 1
+                -- Save after every verified successful move.
+                db.Naked = { active = true, items = saved }
+                NakedObj_Nakie = true
             end
         end
-
-        finish()
     end
 
-    processNext()
+    if next(saved) then
+        db.Naked = { active = true, items = saved }
+        NakedObj_Nakie = true
+    else
+        db.Naked = nil
+        NakedObj_Nakie = false
+    end
+
+    local total = 0
+    for _ in pairs(saved) do total = total + 1 end
+    if stopped then
+        TUI_Print("脱装备已停止；本次成功脱下 " .. moved .. " 件，累计记录 " .. total .. " 件")
+    elseif moved > 0 then
+        TUI_Print("脱装备完成；本次成功脱下 " .. moved .. " 件")
+    else
+        TUI_Print("没有需要脱下的装备")
+    end
 end
 
 function TUI_Dressing()
