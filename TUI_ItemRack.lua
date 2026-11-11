@@ -139,10 +139,10 @@ end
 function TUI_Nakedize()
     if not canMoveItems() then return end
     local db = playerDB()
-    if db.Naked and db.Naked.active then
-        TUI_Print("当前已经处于脱装备状态")
-        return
-    end
+    -- A previous run may have stopped after using the last free bag slot.
+    -- Resume that partial run instead of refusing to do any more work.
+    local existing = db.Naked and db.Naked.active and type(db.Naked.items) == "table"
+        and db.Naked.items or {}
 
     -- Prioritize weapons because they generally account for a large share
     -- of durability loss. Neck, rings and trinkets are excluded by NO_UNDRESS.
@@ -154,8 +154,12 @@ function TUI_Nakedize()
     end
 
     local saved, failed = {}, false
+    for slot, id in pairs(existing) do
+        saved[tostring(slot)] = tostring(id)
+    end
+
     for _, slot in ipairs(undressOrder) do
-        if not NO_UNDRESS[slot] then
+        if not NO_UNDRESS[slot] and not saved[tostring(slot)] then
             local link = GetInventoryItemLink("player", slot)
             local id = itemID(link)
             if link and id then
