@@ -144,31 +144,26 @@ function TUI_Nakedize()
         return
     end
 
-    local required, free = 0, 0
-    for slot = 1, 19 do
-        if not NO_UNDRESS[slot] and GetInventoryItemLink("player", slot) then
-            required = required + 1
+    -- Prioritize weapons because they generally account for a large share
+    -- of durability loss. Neck, rings and trinkets are excluded by NO_UNDRESS.
+    local undressOrder = { 16, 17, 18 }
+    for slot = 19, 1, -1 do
+        if slot ~= 16 and slot ~= 17 and slot ~= 18 then
+            undressOrder[#undressOrder + 1] = slot
         end
-    end
-    for bag = 0, 4 do
-        for slot = 1, bagSlots(bag) do
-            if not TUI_Compat.ContainerItemInfo(bag, slot) then free = free + 1 end
-        end
-    end
-    if free < required then
-        TUI_Print(string.format("背包空位不足：需要 %d 格，当前只有 %d 格", required, free))
-        return
     end
 
     local saved, failed = {}, false
-    for slot = 19, 1, -1 do
+    for _, slot in ipairs(undressOrder) do
         if not NO_UNDRESS[slot] then
             local link = GetInventoryItemLink("player", slot)
             local id = itemID(link)
             if link and id then
+                -- Re-check capacity before every item. If only one slot is
+                -- free, remove one item and retain the partial recovery record.
                 local bag, bagSlot = findFreeBagSlot()
                 if not bag then
-                    TUI_Print("背包空位不足，脱装备操作已停止")
+                    TUI_Print("背包空位已用完，脱装备操作已暂停")
                     failed = true
                     break
                 end
