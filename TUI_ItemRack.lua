@@ -155,7 +155,13 @@ function TUI_Nakedize()
 
     local saved, failed = {}, false
     for slot, id in pairs(existing) do
-        saved[tostring(slot)] = tostring(id)
+        slot = tostring(slot)
+        id = tostring(id)
+        -- Discard stale records left by older runs that reported success
+        -- without actually moving the item out of its equipment slot.
+        if itemID(GetInventoryItemLink("player", tonumber(slot))) ~= id then
+            saved[slot] = id
+        end
     end
 
     for _, slot in ipairs(undressOrder) do
@@ -185,7 +191,9 @@ function TUI_Nakedize()
     if next(saved) then
         db.Naked = { active = true, items = saved }
         NakedObj_Nakie = true
-        TUI_Print(failed and "脱装备部分完成；可再次执行 F9 恢复已收纳装备" or "脱装备完成")
+        local count = 0
+        for _ in pairs(saved) do count = count + 1 end
+        TUI_Print(failed and ("脱装备部分完成；已收纳 " .. count .. " 件，可再次执行 F9 恢复") or ("脱装备完成；已收纳 " .. count .. " 件"))
     else
         db.Naked = nil
         NakedObj_Nakie = false
