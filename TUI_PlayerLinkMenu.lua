@@ -115,10 +115,6 @@ function TUI_PlayerWhoSearch(fullName)
 		TUI_WhoPrint("无法从玩家链接中提取查询名称")
 		return
 	end
-	if #token < 3 then
-		TUI_WhoPrint("查询名称片段至少需要 3 个字符：" .. token)
-		return
-	end
 	if TUI_WhoPending then
 		TUI_WhoPrint("上一次玩家查询尚未完成，请稍后再试")
 		return
@@ -142,13 +138,9 @@ function TUI_PlayerWhoSearch(fullName)
 	TUI_SetWhoToUi(true)
 
 	-- WoW Infinite accepts the n- prefix with an unquoted partial surname.
-	local ok = pcall(sendWho, "n-" .. token)
-	if not ok then
-		TUI_WhoPending = nil
-		TUI_SetWhoToUi(false)
-		TUI_WhoPrint("WHO 查询发送失败")
-		return
-	end
+	-- Call directly from the hyperlink click handler to preserve the
+	-- hardware-event context required by SendWho on supported clients.
+	sendWho("n-" .. token)
 
 	TUI_WhoPrint("正在查询玩家「" .. token .. "」……")
 	if C_Timer and C_Timer.After then
