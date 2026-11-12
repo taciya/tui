@@ -547,6 +547,49 @@ function TUIBinds_SetButtonUnit(self, unit, vbutton)
 	end
 end
 
+-- Wrap offensive action-bar keybinds so auto-attack starts only against hostile targets.
+-- /startattack is idempotent; unlike /cast Attack it does not toggle auto-attack off.
+local function TUIBinds_GetActionSlot(binding)
+    local page, button = string.match(binding or "", "^ACTIONBUTTON(%d+)$")
+    if button then return tonumber(button) end
+    local bar, multiButton = string.match(binding or "", "^MULTIACTIONBAR(%d)BUTTON(%d+)$")
+    if bar and multiButton then
+        local offset = ({[1]=60,[2]=48,[3]=36,[4]=24})[tonumber(bar)]
+        if offset then return offset + tonumber(multiButton) end
+    end
+end
+
+local function TUIBinds_IsHostileAction(slot)
+    if not slot or not GetActionInfo or not IsHarmfulSpell then return false end
+    local actionType, id = GetActionInfo(slot)
+    if actionType ~= "spell" or not id then return false end
+    local spellName = GetSpellInfo and GetSpellInfo(id)
+    return spellName and IsHarmfulSpell(spellName) or false
+end
+
+local function TUIBinds_SetActionBinding(key, actionName, buttonName)
+    local slot = TUIBinds_GetActionSlot(actionName)
+    if not TUIBinds_IsHostileAction(slot) then
+        SetBinding(key, actionName)
+        return
+    end
+    local clickButton
+    local actionButton = string.match(actionName, "^ACTIONBUTTON(%d+)$")
+    local bar, barButton = string.match(actionName, "^MULTIACTIONBAR(%d)BUTTON(%d+)$")
+    if actionButton then
+        clickButton = "ActionButton" .. actionButton
+    elseif bar and barButton then
+        local prefix = ({[1]="MultiBarBottomLeftButton", [2]="MultiBarBottomRightButton",
+            [3]="MultiBarRightButton", [4]="MultiBarLeftButton"})[tonumber(bar)]
+        if prefix then clickButton = prefix .. barButton end
+    end
+    if not clickButton then SetBinding(key, actionName); return end
+    local wrapper = CreateFrame("Button", buttonName .. "Attack", nil, "SecureActionButtonTemplate")
+    wrapper:SetAttribute("type", "macro")
+    wrapper:SetAttribute("macrotext", "/click " .. clickButton .. "\\n/startattack [harm]")
+    SetBindingClick(key, buttonName .. "Attack")
+end
+
 function TUIBinds_OnEvent()
 	if TUIBindsInitialized then return true end
 	if InCombatLockdown and InCombatLockdown() then
@@ -565,7 +608,7 @@ function TUIBinds_OnEvent()
 			button:SetAttribute("type",item.Type)
 			button:SetAttribute(TUIBinds_GetTypeValue(item),TUIBinds_GetValueValue(item))
 			if item.Type=="command" then
-				SetBinding(item.Key, item.Value)
+				TUIBinds_SetActionBinding(item.Key, item.Value, buttonName)
 			else
 				SetBindingClick(item.Key,buttonName)
 			end			
@@ -593,7 +636,7 @@ function TUIBinds_OnEvent()
 					button:SetAttribute("type",item.Type)
 					button:SetAttribute(TUIBinds_GetTypeValue(item),TUIBinds_GetValueValue(item))
 					if item.Type=="command" then
-						SetBinding(item.Key, item.Value)
+						TUIBinds_SetActionBinding(item.Key, item.Value, buttonName)
 					else
 						SetBindingClick(item.Key,buttonName)
 					end
