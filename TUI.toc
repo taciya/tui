@@ -15,6 +15,7 @@ TUI_API.lua
 Localization.lua
 TUI.xml
 TUI_Binds.xml
+TUI_BuffReminder.lua
 ItemInfoEnhancer_Data.lua
 ItemInfoEnhancer.lua
 SoloRaidFrame.lua
