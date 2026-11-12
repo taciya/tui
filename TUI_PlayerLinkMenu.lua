@@ -137,7 +137,8 @@ function TUI_PlayerWhoSearch(fullName)
 	end
 
 	TUI_WhoLastRequest = now
-	TUI_WhoPending = { token = token, fullName = fullName }
+	local request = { token = token, fullName = fullName }
+	TUI_WhoPending = request
 	TUI_SetWhoToUi(true)
 
 	-- WoW Infinite accepts the n- prefix with an unquoted partial surname.
@@ -152,7 +153,7 @@ function TUI_PlayerWhoSearch(fullName)
 	TUI_WhoPrint("正在查询玩家「" .. token .. "」……")
 	if C_Timer and C_Timer.After then
 		C_Timer.After(8, function()
-			if TUI_WhoPending and TUI_WhoPending.token == token then
+			if TUI_WhoPending == request then
 				TUI_WhoPending = nil
 				TUI_SetWhoToUi(false)
 				TUI_WhoPrint("玩家查询暂时没有返回结果；可能是服务器 WHO 冷却，请稍后重试。")
