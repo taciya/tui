@@ -20,4 +20,5 @@ ItemInfoEnhancer.lua
 SoloRaidFrame.lua
 TUI_PlayerLinkMenu.lua
 Attachments.lua
+TUI_Mailbox.lua
 TUI_ItemRack.lua
