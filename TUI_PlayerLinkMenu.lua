@@ -23,6 +23,137 @@
 local function getID(link)
 	return link and string.match(link, "item:(%d+)")
 end
+-- WHO search support for ALT-clicked player links.
+-- WHO_LIST_UPDATE has no query identifier, so keep only one addon request
+-- outstanding and apply a local cooldown to avoid overlapping results.
+local TUI_WhoPending
+local TUI_WhoLastRequest = 0
+local TUI_WhoFrame = CreateFrame("Frame")
+TUI_WhoFrame:RegisterEvent("WHO_LIST_UPDATE")
+
+local function TUI_WhoPrint(message)
+	if TUI_Print then
+		TUI_Print(message)
+	elseif DEFAULT_CHAT_FRAME then
+		DEFAULT_CHAT_FRAME:AddMessage(message)
+	end
+end
+
+local function TUI_SetWhoToUi(enabled)
+	if C_FriendList and C_FriendList.SetWhoToUi then
+		C_FriendList.SetWhoToUi(enabled)
+	elseif SetWhoToUI then
+		SetWhoToUI(enabled and 1 or 0)
+	end
+end
+
+local function TUI_GetWhoCount()
+	if C_FriendList and C_FriendList.GetNumWhoResults then
+		return C_FriendList.GetNumWhoResults()
+	elseif GetNumWhoResults then
+		return GetNumWhoResults()
+	end
+	return 0, 0
+end
+
+local function TUI_GetWhoEntry(index)
+	if C_FriendList and C_FriendList.GetWhoInfo then
+		local info = C_FriendList.GetWhoInfo(index)
+		if type(info) == "table" then
+			return info.fullName or info.name,
+				info.fullGuildName or info.guild,
+				info.level, info.raceStr or info.race,
+				info.classStr or info.class, info.area or info.zone
+		end
+	end
+
+	if GetWhoInfo then
+		return GetWhoInfo(index)
+	end
+end
+
+local function TUI_FinishWhoSearch()
+	local pending = TUI_WhoPending
+	if not pending then return end
+	TUI_WhoPending = nil
+	TUI_SetWhoToUi(false)
+
+	local count, total = TUI_GetWhoCount()
+	count = tonumber(count) or 0
+	total = tonumber(total) or count
+	TUI_WhoPrint(string.format("玩家查询「%s」：找到 %d 个玩家", pending.token, total))
+
+	if count == 0 then
+		TUI_WhoPrint("没有收到可显示的玩家资料；也可能是服务器 WHO 冷却导致请求未返回。")
+		return
+	end
+
+	for index = 1, count do
+		local playerName, guild, level, race, class, zone = TUI_GetWhoEntry(index)
+		if playerName then
+			local details = string.format("%s | %s级 %s %s | %s | 公会：%s",
+				tostring(playerName),
+				tostring(level or "?"),
+				tostring(race or "?"),
+				tostring(class or "?"),
+				tostring(zone or "?"),
+				(guild and guild ~= "") and guild or "无")
+			TUI_WhoPrint(details)
+		end
+	end
+end
+
+TUI_WhoFrame:SetScript("OnEvent", function(_, event)
+	if event == "WHO_LIST_UPDATE" and TUI_WhoPending then
+		TUI_FinishWhoSearch()
+	end
+end)
+
+function TUI_PlayerWhoSearch(fullName)
+	local token = string.match(fullName or "", "([^%s]+)%s*$")
+	if not token or token == "" then
+		TUI_WhoPrint("无法从玩家链接中提取查询名称")
+		return
+	end
+	if TUI_WhoPending then
+		TUI_WhoPrint("上一次玩家查询尚未完成，请稍后再试")
+		return
+	end
+
+	local now = GetTime and GetTime() or 0
+	if now > 0 and now - TUI_WhoLastRequest < 5 then
+		TUI_WhoPrint("WHO 查询间隔太短，请稍后再试")
+		return
+	end
+
+	local sendWho = (C_FriendList and C_FriendList.SendWho) or SendWho
+	if not sendWho then
+		TUI_WhoPrint("当前客户端没有可用的玩家查询接口")
+		return
+	end
+
+	TUI_WhoLastRequest = now
+	local request = { token = token, fullName = fullName }
+	TUI_WhoPending = request
+	TUI_SetWhoToUi(true)
+
+	-- WoW Infinite accepts the n- prefix with an unquoted partial surname.
+	-- Call directly from the hyperlink click handler to preserve the
+	-- hardware-event context required by SendWho on supported clients.
+	sendWho("n-" .. token)
+
+	TUI_WhoPrint("正在查询玩家「" .. token .. "」……")
+	if C_Timer and C_Timer.After then
+		C_Timer.After(8, function()
+			if TUI_WhoPending == request then
+				TUI_WhoPending = nil
+				TUI_SetWhoToUi(false)
+				TUI_WhoPrint("玩家查询暂时没有返回结果；可能是服务器 WHO 冷却，请稍后重试。")
+			end
+		end)
+	end
+end
+
 local TUI_PLM={
 	["LEFT"]={
 		["SHIFT"]=function(name)
@@ -35,23 +166,7 @@ local TUI_PLM={
 			end
 		end,
 		["ALT"]=function(name)
-			-- WoW Infinite's WHO parser handles the final name token more
-			-- reliably than a quoted full name (e.g. "A B" -> "-n B").
-			local searchName = string.match(name or "", "([^%s]+)$")
-			if not searchName or searchName == "" then
-				if DEFAULT_CHAT_FRAME then
-					DEFAULT_CHAT_FRAME:AddMessage("无法从玩家链接中提取查询名称")
-				end
-				return
-			end
-			local query = "-n " .. searchName
-			if C_FriendList and C_FriendList.SendWho then
-				C_FriendList.SendWho(query)
-			elseif SendWho then
-				SendWho(query)
-			elseif DEFAULT_CHAT_FRAME then
-				DEFAULT_CHAT_FRAME:AddMessage("当前客户端没有可用的玩家查询接口")
-			end
+			TUI_PlayerWhoSearch(name)
 		end,
 		["CTRL"]=function(name)
 			if C_FriendList and C_FriendList.AddFriend then C_FriendList.AddFriend(name) elseif AddFriend then AddFriend(name) end;
