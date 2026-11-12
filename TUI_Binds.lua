@@ -573,13 +573,20 @@ local function TUIBinds_SetActionBinding(key, actionName, buttonName)
         SetBinding(key, actionName)
         return
     end
+    local clickButton
+    local actionButton = string.match(actionName, "^ACTIONBUTTON(%d+)$")
+    local bar, barButton = string.match(actionName, "^MULTIACTIONBAR(%d)BUTTON(%d+)$")
+    if actionButton then
+        clickButton = "ActionButton" .. actionButton
+    elseif bar and barButton then
+        local prefix = ({[1]="MultiBarBottomLeftButton", [2]="MultiBarBottomRightButton",
+            [3]="MultiBarRightButton", [4]="MultiBarLeftButton"})[tonumber(bar)]
+        if prefix then clickButton = prefix .. barButton end
+    end
+    if not clickButton then SetBinding(key, actionName); return end
     local wrapper = CreateFrame("Button", buttonName .. "Attack", nil, "SecureActionButtonTemplate")
     wrapper:SetAttribute("type", "macro")
-    wrapper:SetAttribute("macrotext", "/click " .. (slot <= 12 and ("ActionButton" .. slot) or
-        (slot <= 24 and ("MultiBarBottomRightButton" .. (slot - 12)) or
-        slot <= 36 and ("MultiBarBottomLeftButton" .. (slot - 24)) or
-        slot <= 48 and ("MultiBarRightButton" .. (slot - 36)) or
-        ("MultiBarLeftButton" .. (slot - 48))) ) .. "\\n/startattack [harm]")
+    wrapper:SetAttribute("macrotext", "/click " .. clickButton .. "\\n/startattack [harm]")
     SetBindingClick(key, buttonName .. "Attack")
 end
 
