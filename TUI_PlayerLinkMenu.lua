@@ -35,7 +35,16 @@ local TUI_PLM={
 			end
 		end,
 		["ALT"]=function(name)
-			local query = 'n-"' .. name .. '"'
+			-- WoW Infinite's WHO parser handles the final name token more
+			-- reliably than a quoted full name (e.g. "A B" -> "-n B").
+			local searchName = string.match(name or "", "([^%s]+)$")
+			if not searchName or searchName == "" then
+				if DEFAULT_CHAT_FRAME then
+					DEFAULT_CHAT_FRAME:AddMessage("无法从玩家链接中提取查询名称")
+				end
+				return
+			end
+			local query = "-n " .. searchName
 			if C_FriendList and C_FriendList.SendWho then
 				C_FriendList.SendWho(query)
 			elseif SendWho then
@@ -43,7 +52,6 @@ local TUI_PLM={
 			elseif DEFAULT_CHAT_FRAME then
 				DEFAULT_CHAT_FRAME:AddMessage("当前客户端没有可用的玩家查询接口")
 			end
-			
 		end,
 		["CTRL"]=function(name)
 			if C_FriendList and C_FriendList.AddFriend then C_FriendList.AddFriend(name) elseif AddFriend then AddFriend(name) end;
