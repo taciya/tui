@@ -3,7 +3,7 @@
 ## Version: 2.2.1
 ## Notes: Modular utility addon for World of Warcraft: Infinite
 ## Author: TUI
-## SavedVariables: TUI_DB,TUI_Mail_List,TUI_ItemDB,TUI_Rubbish,TUI_SpellInfo,TUI_DropDownDB,DCP_Saved,QBar_Config,TUI_IgnoreList,oGlowDB
+## SavedVariables: TUI_DB,TUI_Mail_Contacts,TUI_ItemDB,TUI_Rubbish,TUI_SpellInfo,TUI_DropDownDB,DCP_Saved,QBar_Config,TUI_IgnoreList,oGlowDB
 
 Core/Bootstrap.lua
 Core/Compat.lua
