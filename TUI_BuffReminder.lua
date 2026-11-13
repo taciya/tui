@@ -105,7 +105,7 @@ end
 
 local function ReadByNameModern(name)
     if not name or not C_UnitAuras then return nil, false, false end
-    local supported, unknown = false, false
+    local supported, unknown, complete = false, false, false
     if type(C_UnitAuras.GetAuraDataBySpellName) == "function" then
         supported = true
         local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, "HELPFUL")
@@ -114,7 +114,6 @@ local function ReadByNameModern(name)
     end
     if type(C_UnitAuras.GetAuraDataByIndex) == "function" then
         supported = true
-        local complete = false
         for i = 1, 255 do
             local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
             if not ok then unknown = true; break end
