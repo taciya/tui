@@ -225,16 +225,22 @@ end
 local function LearnAura(entry, aura)
     local duration, durationOK = Field(aura, "duration")
     local expiration, expirationOK = Field(aura, "expirationTime")
+
+    -- In combat some clients expose the aura itself but hide its timing fields.
+    -- Do not erase a previously learned expiry just because those fields became
+    -- secret/unreadable; the expiry timer is our fallback for combat detection.
+    if durationOK and type(duration) == "number" and duration > 0 then
+        Reminder.durations[entry.key] = duration
+    elseif not durationOK and expirationOK and type(expiration) == "number" and expiration > GetTime() then
+        local inferred = expiration - GetTime()
+        if inferred > 0 then Reminder.durations[entry.key] = inferred end
+    end
+
     if expirationOK and type(expiration) == "number" and expiration > 0 then
         Reminder.expirations[entry.key] = expiration
-        if durationOK and type(duration) == "number" and duration > 0 then
-            Reminder.durations[entry.key] = duration
-        elseif not durationOK then
-            local inferred = expiration - GetTime()
-            if inferred > 0 then Reminder.durations[entry.key] = inferred end
-        end
         ScheduleExpiry(entry, expiration)
-    else
+    elseif expirationOK then
+        -- A readable nil/zero expiration is a confirmed non-expiring aura.
         Reminder.expirations[entry.key] = nil
     end
 end
@@ -264,11 +270,20 @@ function Reminder.CheckAll()
     RefreshAlert()
 end
 
-local function HandleCast(spellID)
-    if type(spellID) ~= "number" then return end
+local function HandleCast(eventArgs)
     local now = GetTime()
-    for _, entry in ipairs(Entries()) do
-        if entry.spellID == spellID then
+    local entries = Entries()
+    for _, entry in ipairs(entries) do
+        local matched = false
+        for _, value in ipairs(eventArgs or {}) do
+            if (entry.spellID and value == entry.spellID)
+                or (type(value) == "string" and entry.name
+                    and string.lower(value) == string.lower(entry.name)) then
+                matched = true
+                break
+            end
+        end
+        if matched then
             local duration = Reminder.durations[entry.key]
             if duration and duration > 0 then
                 local expiry = now + duration
@@ -286,8 +301,20 @@ local function OnEvent(_, event, ...)
         local unit = ...
         if unit == "player" then Reminder.CheckAll() end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
-        local unit, _, spellID = ...
-        if unit == "player" then HandleCast(spellID) end
+        local args = { ... }
+        if args[1] == "player" then
+            -- Event signatures differ between the modern and legacy clients;
+            -- scan the full payload rather than assuming spellID is arg #3.
+            HandleCast(args)
+            if C_Timer and C_Timer.After then
+                C_Timer.After(0.2, Reminder.CheckAll)
+            else
+                Reminder.CheckAll()
+            end
+        end
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        -- Re-evaluate at combat start while the aura data may still be readable.
+        Reminder.CheckAll()
     elseif event == "PLAYER_DEAD" then
         for _, entry in ipairs(Entries()) do
             Reminder.states[entry.key] = "UNKNOWN"
@@ -382,6 +409,7 @@ local function Initialize()
     frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     frame:RegisterEvent("PLAYER_ENTERING_WORLD")
     frame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    frame:RegisterEvent("PLAYER_REGEN_DISABLED")
     frame:RegisterEvent("PLAYER_ALIVE")
     frame:RegisterEvent("PLAYER_UNGHOST")
     frame:RegisterEvent("PLAYER_DEAD")
