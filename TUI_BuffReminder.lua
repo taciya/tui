@@ -187,15 +187,45 @@ local function AlertFrame()
     local f = CreateFrame("Frame", "TUI_BuffReminderAlert", UIParent)
     f:SetFrameStrata("DIALOG")
     f:SetFrameLevel(100)
-    f:SetSize(900, 100)
-    f:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
-    f:Hide()
+    f:SetSize(1120, 150)
+    f:SetPoint("CENTER", UIParent, "CENTER", 0, 105)
+
+    -- High-contrast dark panel with a bright warning border.
+    if f.SetBackdrop then
+        f:SetBackdrop({
+            bgFile = "Interface\\\DialogFrame\\\UI-DialogBox-Background",
+            edgeFile = "Interface\\\Tooltips\\\UI-Tooltip-Border",
+            tile = true, tileSize = 16, edgeSize = 16,
+            insets = { left = 5, right = 5, top = 5, bottom = 5 }
+        })
+        if f.SetBackdropColor then f:SetBackdropColor(0.12, 0.015, 0.015, 0.96) end
+        if f.SetBackdropBorderColor then f:SetBackdropBorderColor(1, 0.25, 0.05, 1) end
+    else
+        local bg = f:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints(f)
+        bg:SetTexture(0.12, 0.015, 0.015, 0.96)
+    end
+
     local fs = f:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
-    fs:SetPoint("CENTER")
-    fs:SetWidth(880)
+    fs:SetPoint("CENTER", f, "CENTER", 0, 0)
+    fs:SetWidth(1060)
     fs:SetJustifyH("CENTER")
-    fs:SetTextColor(1, 0.12, 0.08, 1)
+    local font, _, flags = fs:GetFont()
+    if font then fs:SetFont(font, 34, "THICKOUTLINE") end
+    fs:SetTextColor(1, 0.88, 0.12, 1)
+    if fs.SetShadowOffset then fs:SetShadowOffset(2, -2) end
+    if fs.SetShadowColor then fs:SetShadowColor(0, 0, 0, 1) end
     f.text = fs
+
+    -- A gentle pulse draws attention without a loud sound or rapid flashing.
+    f.pulseElapsed = 0
+    f:SetScript("OnUpdate", function(self, elapsed)
+        if not self:IsShown() then return end
+        self.pulseElapsed = self.pulseElapsed + (elapsed or 0)
+        local alpha = 0.88 + 0.12 * math.sin(self.pulseElapsed * 3.5)
+        self:SetAlpha(alpha)
+    end)
+    f:Hide()
     Reminder.alert = f
     return f
 end
