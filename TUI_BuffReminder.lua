@@ -215,6 +215,23 @@ local function RememberAuraInstance(aura)
     if entry then Reminder.auraInstanceSpells[instanceID] = entry.key end
 end
 
+local function HasOtherAuraInstance(key, excludedInstanceID)
+    for instanceID, instanceKey in pairs(Reminder.auraInstanceSpells) do
+        if instanceID ~= excludedInstanceID and instanceKey == key then return true end
+    end
+    return false
+end
+
+local function MarkRemovedAuraInstance(instanceID)
+    local key = Reminder.auraInstanceSpells[instanceID]
+    if not key then return end
+    Reminder.auraInstanceSpells[instanceID] = nil
+    if not HasOtherAuraInstance(key, instanceID) then
+        Reminder.states[key] = "MISSING"
+        Reminder.expirations[key] = nil
+    end
+end
+
 local function SnapshotAuraInstances()
     if not C_UnitAuras or type(C_UnitAuras.GetUnitAuraInstanceIDs) ~= "function" then
         return false
@@ -234,12 +251,7 @@ local function SnapshotAuraInstances()
     if Reminder.lastAuraInstanceSet then
         for instanceID in pairs(Reminder.lastAuraInstanceSet) do
             if not current[instanceID] then
-                local key = Reminder.auraInstanceSpells[instanceID]
-                if key then
-                    Reminder.states[key] = "MISSING"
-                    Reminder.expirations[key] = nil
-                    Reminder.auraInstanceSpells[instanceID] = nil
-                end
+                MarkRemovedAuraInstance(instanceID)
             end
         end
     end
@@ -258,17 +270,13 @@ local function HandleAuraUpdate(updateInfo)
         if not Secret(removed) and type(removed) == "table" then
             for _, instanceID in ipairs(removed) do
                 if not Secret(instanceID) and type(instanceID) == "number" then
-                    local key = Reminder.auraInstanceSpells[instanceID]
-                    if key then
-                        Reminder.states[key] = "MISSING"
-                        Reminder.expirations[key] = nil
-                        Reminder.auraInstanceSpells[instanceID] = nil
-                    end
+                    MarkRemovedAuraInstance(instanceID)
                 end
             end
         end
 
-        if updateInfo.isFullUpdate == true then
+        local fullUpdate, fullUpdateOK = Field(updateInfo, "isFullUpdate")
+        if fullUpdateOK and fullUpdate == true then
             -- A full update invalidates the old instance snapshot; rebuild it
             -- from the current aura collection rather than diffing stale IDs.
             Reminder.lastAuraInstanceSet = nil
