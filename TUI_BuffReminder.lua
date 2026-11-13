@@ -88,7 +88,7 @@ local function KeyFor(id, name)
     return id and tostring(id) or ("name:" .. string.lower(name))
 end
 
-local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {} }
+local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {}, auraInstanceSpells = {}, lastAuraInstanceSet = nil }
 
 local function ReadByID(id)
     if not id or not C_UnitAuras then return nil, false, false end
@@ -180,6 +180,103 @@ local function ReadAura(entry)
     if unknown or not supported then return "UNKNOWN" end
     if modernComplete or legacyComplete or idReliableAbsent then return "MISSING" end
     return "UNKNOWN"
+end
+
+
+-- Track aura instance IDs separately from spell IDs. UNIT_AURA removal data
+-- can identify an aura disappearing even when its current AuraData is hidden.
+local function EntryForSpell(spellID, name)
+    for _, entry in ipairs(Entries()) do
+        if (spellID and entry.spellID == spellID)
+            or (name and entry.name and string.lower(entry.name) == string.lower(name)) then
+            return entry
+        end
+    end
+end
+
+local function ReadAuraByInstanceID(instanceID)
+    if not C_UnitAuras or type(C_UnitAuras.GetAuraDataByAuraInstanceID) ~= "function" then
+        return nil
+    end
+    local ok, aura = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, "player", instanceID)
+    if not ok or Secret(aura) then return nil end
+    return aura
+end
+
+local function RememberAuraInstance(aura)
+    if not aura or Secret(aura) then return end
+    local instanceID, instanceOK = Field(aura, "auraInstanceID")
+    if not instanceOK or type(instanceID) ~= "number" then return end
+    local spellID, spellOK = Field(aura, "spellId")
+    if not spellOK then spellID, spellOK = Field(aura, "spellID") end
+    local name, nameOK = Field(aura, "name")
+    if not spellOK and not nameOK then return end
+    local entry = EntryForSpell(spellOK and spellID or nil, nameOK and name or nil)
+    if entry then Reminder.auraInstanceSpells[instanceID] = entry.key end
+end
+
+local function SnapshotAuraInstances()
+    if not C_UnitAuras or type(C_UnitAuras.GetUnitAuraInstanceIDs) ~= "function" then
+        return false
+    end
+    local ok, ids = pcall(C_UnitAuras.GetUnitAuraInstanceIDs, "player", "HELPFUL")
+    if not ok or Secret(ids) or type(ids) ~= "table" then return false end
+
+    local current = {}
+    for _, instanceID in ipairs(ids) do
+        if Secret(instanceID) or type(instanceID) ~= "number" then return false end
+        current[instanceID] = true
+        RememberAuraInstance(ReadAuraByInstanceID(instanceID))
+    end
+
+    -- A set difference is a second source of removal information for clients
+    -- that expose instance IDs but omit removedAuraInstanceIDs from updateInfo.
+    if Reminder.lastAuraInstanceSet then
+        for instanceID in pairs(Reminder.lastAuraInstanceSet) do
+            if not current[instanceID] then
+                local key = Reminder.auraInstanceSpells[instanceID]
+                if key then
+                    Reminder.states[key] = "MISSING"
+                    Reminder.expirations[key] = nil
+                    Reminder.auraInstanceSpells[instanceID] = nil
+                end
+            end
+        end
+    end
+    Reminder.lastAuraInstanceSet = current
+    return true
+end
+
+local function HandleAuraUpdate(updateInfo)
+    if updateInfo and not Secret(updateInfo) and type(updateInfo) == "table" then
+        local added = updateInfo.addedAuras
+        if not Secret(added) and type(added) == "table" then
+            for _, aura in ipairs(added) do RememberAuraInstance(aura) end
+        end
+
+        local removed = updateInfo.removedAuraInstanceIDs
+        if not Secret(removed) and type(removed) == "table" then
+            for _, instanceID in ipairs(removed) do
+                if not Secret(instanceID) and type(instanceID) == "number" then
+                    local key = Reminder.auraInstanceSpells[instanceID]
+                    if key then
+                        Reminder.states[key] = "MISSING"
+                        Reminder.expirations[key] = nil
+                        Reminder.auraInstanceSpells[instanceID] = nil
+                    end
+                end
+            end
+        end
+
+        if updateInfo.isFullUpdate == true then
+            -- A full update invalidates the old instance snapshot; rebuild it
+            -- from the current aura collection rather than diffing stale IDs.
+            Reminder.lastAuraInstanceSet = nil
+        end
+    end
+
+    SnapshotAuraInstances()
+    Reminder.CheckAll()
 end
 
 local function AlertFrame()
@@ -328,8 +425,8 @@ end
 
 local function OnEvent(_, event, ...)
     if event == "UNIT_AURA" then
-        local unit = ...
-        if unit == "player" then Reminder.CheckAll() end
+        local unit, updateInfo = ...
+        if unit == "player" then HandleAuraUpdate(updateInfo) end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         local args = { ... }
         if args[1] == "player" then
@@ -446,6 +543,7 @@ local function Initialize()
     frame:SetScript("OnEvent", OnEvent)
     SlashCmdList["TUIBUFF"] = Command
     SLASH_TUIBUFF1, SLASH_TUIBUFF2 = "/tuibuff", "/tbuff"
+    SnapshotAuraInstances()
     Reminder.CheckAll()
 end
 
