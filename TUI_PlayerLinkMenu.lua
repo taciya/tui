@@ -169,7 +169,26 @@ local TUI_PLM={
 			TUI_PlayerWhoSearch(name)
 		end,
 		["CTRL"]=function(name)
-			if C_FriendList and C_FriendList.AddFriend then C_FriendList.AddFriend(name) elseif AddFriend then AddFriend(name) end;
+			if not name or name == "" then return end
+
+			-- AddFriend is a restricted API on current clients. Open Blizzard's
+			-- native confirmation dialog from the hyperlink click instead.
+			if StaticPopup_Show then
+				local dialog = StaticPopup_Show("ADD_FRIEND")
+				if dialog and dialog.editBox then
+					dialog.editBox:SetText(name)
+					dialog.editBox:HighlightText()
+					dialog.editBox:SetFocus()
+					return
+				end
+			end
+
+			-- Fallback: let the player submit the native slash command manually.
+			if ChatFrame_OpenChat then
+				ChatFrame_OpenChat("/friend " .. name, DEFAULT_CHAT_FRAME)
+			elseif DEFAULT_CHAT_FRAME then
+				DEFAULT_CHAT_FRAME:AddMessage("无法打开添加好友窗口")
+			end
 		end,
 		["NONE"]=function(name)
 			ChatFrame_SendTell(name);
