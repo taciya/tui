@@ -129,7 +129,7 @@ local function ReadByNameModern(name)
         end
         if not complete then unknown = true end
     end
-    return nil, supported, unknown
+    return nil, supported, unknown, complete
 end
 
 local function ReadByNameLegacy(name)
@@ -151,22 +151,24 @@ end
 
 local function ReadAura(entry)
     local supported, unknown = false, false
+    local idReliableAbsent = false
     if entry.spellID then
-        local aura, ok, uncertain = ReadByID(entry.spellID)
-        supported, unknown = supported or ok, unknown or uncertain
+        local aura, idOK, uncertain = ReadByID(entry.spellID)
+        supported, unknown = supported or idOK, unknown or uncertain
         if aura then return "PRESENT", aura end
+        idReliableAbsent = idOK and not uncertain
     end
 
-    local aura, ok, uncertain = ReadByNameModern(entry.name)
-    supported, unknown = supported or ok, unknown or uncertain
-    if aura then return "PRESENT", aura end
+    local modern, modernOK, modernUnknown, modernComplete = ReadByNameModern(entry.name)
+    supported, unknown = supported or modernOK, unknown or modernUnknown
+    if modern then return "PRESENT", modern end
 
-    local legacy, legacyOK, legacyUnknown, complete = ReadByNameLegacy(entry.name)
+    local legacy, legacyOK, legacyUnknown, legacyComplete = ReadByNameLegacy(entry.name)
     supported, unknown = supported or legacyOK, unknown or legacyUnknown
     if legacy then return "PRESENT", legacy end
 
     if unknown or not supported then return "UNKNOWN" end
-    if complete or (entry.spellID and ok) then return "MISSING" end
+    if modernComplete or legacyComplete or idReliableAbsent then return "MISSING" end
     return "UNKNOWN"
 end
 
