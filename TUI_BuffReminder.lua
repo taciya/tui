@@ -92,13 +92,24 @@ local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {} }
 
 local function ReadByID(id)
     if not id or not C_UnitAuras then return nil, false, false end
-    local api = C_UnitAuras.GetPlayerAuraBySpellID or C_UnitAuras.GetAuraDataBySpellID
-    if type(api) ~= "function" then return nil, false, false end
+    local api, useUnitAPI
+    if type(C_UnitAuras.GetPlayerAuraBySpellID) == "function" then
+        api = C_UnitAuras.GetPlayerAuraBySpellID
+    elseif type(C_UnitAuras.GetUnitAuraBySpellID) == "function" then
+        api, useUnitAPI = C_UnitAuras.GetUnitAuraBySpellID, true
+    else
+        return nil, false, false
+    end
     if C_Secrets and type(C_Secrets.ShouldSpellAuraBeSecret) == "function" then
         local ok, secret = pcall(C_Secrets.ShouldSpellAuraBeSecret, id)
         if ok and (Secret(secret) or secret == true) then return nil, true, true end
     end
-    local ok, aura = pcall(api, id)
+    local ok, aura
+    if useUnitAPI then
+        ok, aura = pcall(api, "player", id)
+    else
+        ok, aura = pcall(api, id)
+    end
     if not ok or Secret(aura) then return nil, true, true end
     return aura, true, false
 end
