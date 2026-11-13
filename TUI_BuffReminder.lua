@@ -527,13 +527,24 @@ local function Command(message)
     elseif cmd == "check" then
         Reminder.CheckAll()
         Print("已重新检测")
+    elseif cmd == "debug" then
+        local auraAPI = C_UnitAuras and type(C_UnitAuras.GetUnitAuraInstanceIDs) == "function"
+        local lookupAPI = C_UnitAuras and type(C_UnitAuras.GetAuraDataByAuraInstanceID) == "function"
+        local mapped = 0
+        for _ in pairs(Reminder.auraInstanceSpells) do mapped = mapped + 1 end
+        Print("Aura Instance API: " .. (auraAPI and "可用" or "不可用"))
+        Print("Aura Instance 查询 API: " .. (lookupAPI and "可用" or "不可用"))
+        Print("已映射实例: " .. tostring(mapped))
+        for _, entry in ipairs(Entries()) do
+            Print((entry.name or tostring(entry.spellID)) .. " | " .. tostring(Reminder.states[entry.key] or "UNKNOWN"))
+        end
     elseif cmd == "test" then
         local f = AlertFrame()
         f.text:SetText("|cffff3333缺少效果：闪电之盾（测试）|r")
         f:Show()
         if C_Timer and C_Timer.After then C_Timer.After(4, RefreshAlert) end
     else
-        Print("用法：/tuibuff add <名称或ID> | del <名称或ID> | list | clear | check | test")
+        Print("用法：/tuibuff add <名称或ID> | del <名称或ID> | list | clear | check | debug | test")
     end
 end
 
