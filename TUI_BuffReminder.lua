@@ -193,8 +193,8 @@ local function AlertFrame()
     -- High-contrast dark panel with a bright warning border.
     if f.SetBackdrop then
         f:SetBackdrop({
-            bgFile = "Interface\\\DialogFrame\\\UI-DialogBox-Background",
-            edgeFile = "Interface\\\Tooltips\\\UI-Tooltip-Border",
+            bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
             tile = true, tileSize = 16, edgeSize = 16,
             insets = { left = 5, right = 5, top = 5, bottom = 5 }
         })
