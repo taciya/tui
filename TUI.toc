@@ -22,3 +22,4 @@ TUI_PlayerLinkMenu.lua
 Attachments.lua
 TUI_MailAddressBook.lua
 TUI_ItemRack.lua
+TUI_BuffReminder.lua
