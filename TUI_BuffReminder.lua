@@ -389,11 +389,10 @@ end
 local function HandleAuraUpdate(updateInfo)
     if updateInfo and not Secret(updateInfo) and type(updateInfo) == "table" then Reminder.debug.updateInfoEvents = Reminder.debug.updateInfoEvents + 1 end
     if updateInfo and not Secret(updateInfo) and type(updateInfo) == "table" then
-        local added = updateInfo.addedAuras
-        if not Secret(added) and type(added) == "table" then
-            for _, aura in ipairs(added) do RememberAuraInstance(aura, "event-added") end
-        end
-
+        -- Process removals before additions in the same UNIT_AURA payload.
+        -- A refresh/reapplication can remove an old instance and add a new one
+        -- in one update; the new event-added instance must win and clear the
+        -- removal latch.
         local removed = updateInfo.removedAuraInstanceIDs
         if not Secret(removed) and type(removed) == "table" then
             for _, instanceID in ipairs(removed) do
@@ -402,6 +401,11 @@ local function HandleAuraUpdate(updateInfo)
                     Reminder.debug.removedIDs = Reminder.debug.removedIDs + 1
                 end
             end
+        end
+
+        local added = updateInfo.addedAuras
+        if not Secret(added) and type(added) == "table" then
+            for _, aura in ipairs(added) do RememberAuraInstance(aura, "event-added") end
         end
 
         local fullUpdate, fullUpdateOK = Field(updateInfo, "isFullUpdate")
