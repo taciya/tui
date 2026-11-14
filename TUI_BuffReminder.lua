@@ -287,9 +287,9 @@ end
 
 local function RememberAuraInstance(aura, source)
     if not aura or Secret(aura) then return end
-    -- Preserve provenance when a snapshot sees an instance previously reported
-    -- by addedAuras, but only the actual event may advance its event sequence
-    -- or clear a removal latch.
+    -- Preserve event provenance when a snapshot sees an instance previously
+    -- reported by addedAuras. A complete snapshot may independently confirm
+    -- current presence and clear a removal latch, but never fabricates an event.
     local explicitAddedEvent = source == "event-added"
     local instanceID, instanceOK = Field(aura, "auraInstanceID")
     if not instanceOK or type(instanceID) ~= "number" then return end
@@ -315,9 +315,17 @@ local function RememberAuraInstance(aura, source)
             entrySpellID = entry.spellID,
         }
         Reminder.instanceTrackedKeys[entry.key] = true
-        -- Added/updated events are positive evidence. A successful complete
-        -- snapshot is also positive evidence after a full-update invalidation.
+        -- Added/updated events and any successful complete snapshot are
+        -- positive evidence that the monitored aura is currently present.
         if explicitAddedEvent or source == "event-updated" or source == "snapshot-confirmed" then
+            if Reminder.confirmedRemovedKeys[entry.key] then
+                DebugLog("INFO", "Aura removal latch cleared by positive evidence", {
+                    name = entry.name or tostring(entry.spellID),
+                    spellID = entry.spellID,
+                    instanceID = instanceID,
+                    source = source or "unknown"
+                })
+            end
             Reminder.confirmedRemovedKeys[entry.key] = nil
         end
     end
