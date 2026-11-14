@@ -287,9 +287,9 @@ end
 
 local function RememberAuraInstance(aura, source)
     if not aura or Secret(aura) then return end
-    -- Preserve provenance when a snapshot sees an instance previously reported
-    -- by addedAuras, but only the actual event may advance its event sequence
-    -- or clear a removal latch.
+    -- Preserve event provenance when a snapshot sees an instance previously
+    -- reported by addedAuras. A complete snapshot may independently confirm
+    -- current presence and clear a removal latch, but never fabricates an event.
     local explicitAddedEvent = source == "event-added"
     local instanceID, instanceOK = Field(aura, "auraInstanceID")
     if not instanceOK or type(instanceID) ~= "number" then return end
@@ -315,9 +315,17 @@ local function RememberAuraInstance(aura, source)
             entrySpellID = entry.spellID,
         }
         Reminder.instanceTrackedKeys[entry.key] = true
-        -- Added/updated events are positive evidence. A successful complete
-        -- snapshot is also positive evidence after a full-update invalidation.
+        -- Added/updated events and any successful complete snapshot are
+        -- positive evidence that the monitored aura is currently present.
         if explicitAddedEvent or source == "event-updated" or source == "snapshot-confirmed" then
+            if Reminder.confirmedRemovedKeys[entry.key] then
+                DebugLog("INFO", "Aura removal latch cleared by positive evidence", {
+                    name = entry.name or tostring(entry.spellID),
+                    spellID = entry.spellID,
+                    instanceID = instanceID,
+                    source = source or "unknown"
+                })
+            end
             Reminder.confirmedRemovedKeys[entry.key] = nil
         end
     end
@@ -355,6 +363,10 @@ local function MarkRemovedAuraInstance(instanceID, source)
         Reminder.states[key] = "MISSING"
         Reminder.confirmedRemovedKeys[key] = true
         Reminder.expirations[key] = nil
+        -- The snapshot is a point-in-time baseline. Once the last tracked
+        -- instance is removed, do not keep reporting that old snapshot as
+        -- PRESENT while waiting for the next complete reconciliation.
+        Reminder.snapshotPresent[key] = nil
         if previous ~= "MISSING" then
             DebugLog("INFO", "Reminder state changed", {
                 name = detail.name or tostring(key),
@@ -403,7 +415,10 @@ local function SnapshotAuraInstances(source)
 
     -- Commit only after the entire enumeration has been read successfully.
     for _, aura in ipairs(snapshotAuras) do
-        local sourceTag = source == "full-update" and "snapshot-confirmed" or "snapshot"
+        -- Any successful complete snapshot is fresh positive evidence. This
+        -- also lets combat reconciliation recover when this client omits an
+        -- addedAuras delta even though the aura is visibly active.
+        local sourceTag = "snapshot-confirmed"
         RememberAuraInstance(aura, sourceTag)
         local instanceID = Field(aura, "auraInstanceID")
         local key = instanceID and Reminder.auraInstanceSpells[instanceID]
@@ -509,6 +524,16 @@ local function HandleAuraUpdate(updateInfo)
         updated = eventUpdated,
         removed = eventRemoved
     })
+
+    -- Some supported client builds omit addedAuras for an aura that becomes
+    -- visible during combat. If a prior removal latch is active, reconcile
+    -- against the complete player aura-instance list before keeping MISSING.
+    -- A complete snapshot that maps the monitored spell is positive evidence
+    -- and clears that latch; an incomplete/empty snapshot never does.
+    if type(InCombatLockdown) == "function" and InCombatLockdown()
+        and next(Reminder.confirmedRemovedKeys) ~= nil then
+        SnapshotAuraInstances("combat-reconcile")
+    end
     Reminder.CheckAll()
 end
 
