@@ -325,11 +325,7 @@ local function HasOtherAuraInstance(key, excludedInstanceID)
         -- A snapshot-only sibling is not sufficient evidence of continued
         -- presence on this client: its instance list can retain stale IDs.
         -- Only an explicit addedAuras event confirms a new live sibling.
-        local source = Reminder.auraInstanceSources[instanceID]
-        if instanceID ~= excludedInstanceID and instanceKey == key
-            and (source == "event-added" or source == "event-updated")
-            and (Reminder.auraInstanceAddedSequence[instanceID] or 0)
-                > (Reminder.lastRemovalSequence[key] or 0) then
+        if instanceID ~= excludedInstanceID and instanceKey == key then
             return true
         end
     end
@@ -482,8 +478,9 @@ local function HandleAuraUpdate(updateInfo)
         end
     end
 
-    Reminder.debug.lastUpdate = Reminder.debug.lastUpdate == "UPDATED_UNREADABLE"
-        and Reminder.debug.lastUpdate or "DELTA"
+    if not string.find(Reminder.debug.lastUpdate or "", "^UPDATED_UNREADABLE:") then
+        Reminder.debug.lastUpdate = "DELTA"
+    end
     Reminder.CheckAll()
 end
 
@@ -639,32 +636,31 @@ function Reminder.CheckEntry(entry)
     -- report UNKNOWN/ABSENT while the event-added instance is still active.
     -- Snapshot-only instances do not qualify; removed events and complete
     -- snapshot diffs retire the active mapping.
-    local eventConfirmedInstanceID
-    local lastRemoval = Reminder.lastRemovalSequence[entry.key] or 0
+    -- The cache is the authoritative working set: initial enumeration supplies
+    -- its baseline, then UNIT_AURA deltas maintain it. Every still-mapped
+    -- instance counts, regardless of whether it came from a snapshot or event.
+    local cachedInstanceID
     for instanceID, instanceKey in pairs(Reminder.auraInstanceSpells) do
-        local source = Reminder.auraInstanceSources[instanceID]
-        if instanceKey == entry.key
-            and (source == "event-added" or source == "event-updated")
-            and (Reminder.auraInstanceAddedSequence[instanceID] or 0) > lastRemoval then
-            eventConfirmedInstanceID = instanceID
+        if instanceKey == entry.key then
+            cachedInstanceID = instanceID
             break
         end
     end
 
     local state, aura
-    if eventConfirmedInstanceID then
+    if cachedInstanceID then
         state = "PRESENT"
-        aura = Reminder.auraInstanceData[eventConfirmedInstanceID]
-            or ReadAuraByInstanceID(eventConfirmedInstanceID)
+        aura = Reminder.auraInstanceData[cachedInstanceID]
+            or ReadAuraByInstanceID(cachedInstanceID)
     else
         state, aura = ReadAura(entry)
     end
 
     -- A confirmed removal is a latch: only a later explicit UNIT_AURA
     -- addedAuras event clears it. Direct spell/name lookup is not equivalent.
-    if Reminder.confirmedRemovedKeys[entry.key] and not eventConfirmedInstanceID then
+    if Reminder.confirmedRemovedKeys[entry.key] and not cachedInstanceID then
         state, aura = "MISSING", nil
-    elseif eventConfirmedInstanceID then
+    elseif cachedInstanceID then
         state = "PRESENT"
     elseif Reminder.snapshotValid and Reminder.instanceTrackedKeys[entry.key] then
         if state == "MISSING" then
@@ -868,6 +864,12 @@ local function Command(message)
     elseif cmd == "clear" then
         TUI_BuffReminderDB = {}
         Reminder.states, Reminder.expirations, Reminder.tokens = {}, {}, {}
+        Reminder.auraInstanceSpells, Reminder.auraInstanceData = {}, {}
+        Reminder.auraInstanceDetails, Reminder.auraInstanceHistory = {}, {}
+        Reminder.auraInstanceSources, Reminder.auraInstanceAddedSequence = {}, {}
+        Reminder.instanceTrackedKeys, Reminder.confirmedRemovedKeys = {}, {}
+        Reminder.lastRemovalSequence, Reminder.snapshotPresent = {}, {}
+        Reminder.lastAuraInstanceSet, Reminder.snapshotValid = nil, false
         RefreshAlert()
         Print("监控列表已清空")
     elseif cmd == "check" then
