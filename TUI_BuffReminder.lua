@@ -322,9 +322,8 @@ end
 
 local function HasOtherAuraInstance(key, excludedInstanceID)
     for instanceID, instanceKey in pairs(Reminder.auraInstanceSpells) do
-        -- A snapshot-only sibling is not sufficient evidence of continued
-        -- presence on this client: its instance list can retain stale IDs.
-        -- Only an explicit addedAuras event confirms a new live sibling.
+        -- Every mapped instance belongs to the current cache baseline or to a
+        -- later UNIT_AURA delta; a sibling prevents a false MISSING transition.
         if instanceID ~= excludedInstanceID and instanceKey == key then
             return true
         end
@@ -370,7 +369,7 @@ local function SnapshotAuraInstances(source)
         return false
     end
 
-    local current, present = {}, {}
+    local current, present, snapshotAuras = {}, {}, {}
     for _, instanceID in ipairs(ids) do
         if Secret(instanceID) or type(instanceID) ~= "number" then
             Reminder.snapshotValid = false
@@ -379,15 +378,22 @@ local function SnapshotAuraInstances(source)
         end
         local aura = ReadAuraByInstanceID(instanceID)
         -- An ID list with an unreadable member is not a complete snapshot.
-        -- Never infer absence from a partial enumeration.
+        -- Never infer absence from a partial enumeration or partially commit it.
         if not aura then
             Reminder.snapshotValid = false
             Reminder.debug.snapshotFailed = Reminder.debug.snapshotFailed + 1
             return false
         end
         current[instanceID] = true
-        RememberAuraInstance(aura, source == "full-update" and "snapshot-confirmed" or "snapshot")
-        local key = Reminder.auraInstanceSpells[instanceID]
+        snapshotAuras[#snapshotAuras + 1] = aura
+    end
+
+    -- Commit only after the entire enumeration has been read successfully.
+    for _, aura in ipairs(snapshotAuras) do
+        local sourceTag = source == "full-update" and "snapshot-confirmed" or "snapshot"
+        RememberAuraInstance(aura, sourceTag)
+        local instanceID = Field(aura, "auraInstanceID")
+        local key = instanceID and Reminder.auraInstanceSpells[instanceID]
         if key then present[key] = true end
     end
 
@@ -632,12 +638,9 @@ function Reminder.CheckEntry(entry)
         return
     end
 
-    -- An instance explicitly reported by UNIT_AURA.addedAuras is stronger
-    -- evidence than spell-ID/name lookups on this client. Those lookups can
-    -- report UNKNOWN/ABSENT while the event-added instance is still active.
-    -- Snapshot-only instances do not qualify; removed events and complete
-    -- snapshot diffs retire the active mapping.
-    -- The cache is the authoritative working set: initial enumeration supplies
+    -- An instance in the working cache is stronger evidence than spell-ID/name
+    -- lookups, which can report UNKNOWN/ABSENT while the aura remains active.
+    -- Initial enumeration supplies
     -- its baseline, then UNIT_AURA deltas maintain it. Every still-mapped
     -- instance counts, regardless of whether it came from a snapshot or event.
     local cachedInstanceID
