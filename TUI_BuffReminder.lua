@@ -88,7 +88,7 @@ local function KeyFor(id, name)
     return id and tostring(id) or ("name:" .. string.lower(name))
 end
 
-local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {}, auraInstanceSpells = {}, lastAuraInstanceSet = nil, instanceTrackedKeys = {}, snapshotPresent = {}, snapshotValid = false, debug = { auraEvents = 0, playerAuraEvents = 0, updateInfoEvents = 0, removedIDs = 0, snapshotOK = 0, snapshotFailed = 0, snapshotRemoved = 0, lastRemoval = "none" } }
+local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {}, auraInstanceSpells = {}, auraInstanceDetails = {}, lastAuraInstanceSet = nil, instanceTrackedKeys = {}, snapshotPresent = {}, snapshotValid = false, debug = { auraEvents = 0, playerAuraEvents = 0, updateInfoEvents = 0, removedIDs = 0, snapshotOK = 0, snapshotFailed = 0, snapshotRemoved = 0, lastRemoval = "none" } }
 
 local function ReadByID(id)
     if not id or not C_UnitAuras then return nil, false, false end
@@ -214,6 +214,12 @@ local function RememberAuraInstance(aura)
     local entry = EntryForSpell(spellOK and spellID or nil, nameOK and name or nil)
     if entry then
         Reminder.auraInstanceSpells[instanceID] = entry.key
+        Reminder.auraInstanceDetails[instanceID] = {
+            spellID = spellOK and spellID or nil,
+            name = nameOK and name or nil,
+            entryName = entry.name,
+            entrySpellID = entry.spellID,
+        }
         Reminder.instanceTrackedKeys[entry.key] = true
     end
 end
@@ -233,8 +239,10 @@ local function MarkRemovedAuraInstance(instanceID, source)
         end
         return
     end
-    Reminder.debug.lastRemoval = tostring(instanceID) .. " -> " .. tostring(key) .. " (" .. tostring(source or "unknown") .. ")"
+    local detail = Reminder.auraInstanceDetails[instanceID] or {}
+    Reminder.debug.lastRemoval = string.format("%s -> %s [spellID:%s name:%s] (%s)", tostring(instanceID), tostring(key), tostring(detail.spellID or "-"), tostring(detail.name or "-"), tostring(source or "unknown"))
     Reminder.auraInstanceSpells[instanceID] = nil
+    Reminder.auraInstanceDetails[instanceID] = nil
     if not HasOtherAuraInstance(key, instanceID) then
         Reminder.states[key] = "MISSING"
         Reminder.expirations[key] = nil
@@ -269,7 +277,10 @@ local function SnapshotAuraInstances()
     -- from the complete instance-ID snapshot. This prevents a stale spell/name
     -- lookup from changing a confirmed removal back to PRESENT.
     for instanceID in pairs(Reminder.auraInstanceSpells) do
-        if not current[instanceID] then Reminder.auraInstanceSpells[instanceID] = nil end
+        if not current[instanceID] then
+            Reminder.auraInstanceSpells[instanceID] = nil
+            Reminder.auraInstanceDetails[instanceID] = nil
+        end
     end
     local present = {}
     for instanceID in pairs(current) do
@@ -585,6 +596,16 @@ local function Command(message)
         Print(string.format("UNIT_AURA: %d (player:%d, updateInfo:%d)", Reminder.debug.auraEvents, Reminder.debug.playerAuraEvents, Reminder.debug.updateInfoEvents))
         Print(string.format("移除ID:%d | 快照成功:%d 失败:%d | 快照发现移除:%d", Reminder.debug.removedIDs, Reminder.debug.snapshotOK, Reminder.debug.snapshotFailed, Reminder.debug.snapshotRemoved))
         Print("最近移除: " .. tostring(Reminder.debug.lastRemoval))
+        local activeIDs = {}
+        for instanceID, key in pairs(Reminder.auraInstanceSpells) do
+            activeIDs[#activeIDs + 1] = instanceID
+        end
+        table.sort(activeIDs)
+        for _, instanceID in ipairs(activeIDs) do
+            local key = Reminder.auraInstanceSpells[instanceID]
+            local detail = Reminder.auraInstanceDetails[instanceID] or {}
+            Print(string.format("当前实例:%s -> %s | AuraID:%s | 名称:%s", tostring(instanceID), tostring(key), tostring(detail.spellID or "-"), tostring(detail.name or "-")))
+        end
         for _, entry in ipairs(Entries()) do
             if Reminder.instanceTrackedKeys[entry.key] then
                 Print((entry.name or tostring(entry.spellID)) .. " 实例快照: " .. (Reminder.snapshotValid and (Reminder.snapshotPresent[entry.key] and "PRESENT" or "MISSING") or "UNKNOWN"))
