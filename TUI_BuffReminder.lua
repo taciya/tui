@@ -178,6 +178,11 @@ end
 
 local function ReadByNameLegacy(name)
     if not name or type(UnitAura) ~= "function" then return nil, false, false end
+    -- Avoid legacy indexed aura enumeration during combat as well. On this
+    -- client it can share the same taint restrictions as the modern index API.
+    if type(InCombatLockdown) == "function" and InCombatLockdown() then
+        return nil, true, true
+    end
     local unknown = false
     for i = 1, 255 do
         local values = { pcall(UnitAura, "player", i, "HELPFUL") }
