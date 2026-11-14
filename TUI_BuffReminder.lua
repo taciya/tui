@@ -441,18 +441,9 @@ local function HandleAuraUpdate(updateInfo)
         return
     end
 
-    -- Apply the delta in dependency order: removals, additions, then updates.
-    -- A reapplication in one payload must leave the newly added instance active.
-    local removed = Field(updateInfo, "removedAuraInstanceIDs")
-    if type(removed) == "table" and not Secret(removed) then
-        for _, instanceID in ipairs(removed) do
-            if not Secret(instanceID) and type(instanceID) == "number" then
-                MarkRemovedAuraInstance(instanceID, "event")
-                Reminder.debug.removedIDs = Reminder.debug.removedIDs + 1
-            end
-        end
-    end
-
+    -- Apply positive updates first and removals last. If a client reports
+    -- one instance in both updated and removed lists, removal must win; a
+    -- refresh that creates a new instance remains PRESENT through that new ID.
     local added = Field(updateInfo, "addedAuras")
     if type(added) == "table" and not Secret(added) then
         for _, aura in ipairs(added) do
@@ -474,6 +465,16 @@ local function HandleAuraUpdate(updateInfo)
                     Reminder.debug.lastUpdate = "UPDATED_UNREADABLE:" .. tostring(instanceID)
                 end
                 Reminder.debug.updatedIDs = Reminder.debug.updatedIDs + 1
+            end
+        end
+    end
+
+    local removed = Field(updateInfo, "removedAuraInstanceIDs")
+    if type(removed) == "table" and not Secret(removed) then
+        for _, instanceID in ipairs(removed) do
+            if not Secret(instanceID) and type(instanceID) == "number" then
+                MarkRemovedAuraInstance(instanceID, "event")
+                Reminder.debug.removedIDs = Reminder.debug.removedIDs + 1
             end
         end
     end
