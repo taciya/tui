@@ -327,36 +327,57 @@ end
 local function AlertFrame()
     if Reminder.alert then return Reminder.alert end
     local f = CreateFrame("Frame", "TUI_BuffReminderAlert", UIParent)
-    f:SetFrameStrata("DIALOG")
-    f:SetFrameLevel(100)
+    -- Put the warning above ordinary dialogs and addon frames. Do not rely on
+    -- the default strata/level, which can be covered by other UI elements.
+    f:SetFrameStrata("TOOLTIP")
+    f:SetFrameLevel(500)
+    f:SetToplevel(true)
+    if f.SetClampedToScreen then f:SetClampedToScreen(true) end
+    if f.SetIgnoreParentAlpha then f:SetIgnoreParentAlpha(true) end
     f:SetSize(1120, 150)
     f:SetPoint("CENTER", UIParent, "CENTER", 0, 105)
 
-    -- High-contrast dark panel with a bright warning border.
-    if f.SetBackdrop then
-        f:SetBackdrop({
-            bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            tile = true, tileSize = 16, edgeSize = 16,
-            insets = { left = 5, right = 5, top = 5, bottom = 5 }
-        })
-        if f.SetBackdropColor then f:SetBackdropColor(0.12, 0.015, 0.015, 0.96) end
-        if f.SetBackdropBorderColor then f:SetBackdropBorderColor(1, 0.25, 0.05, 1) end
+    -- Use an explicit color texture: SetTexture(r,g,b,a) is not portable
+    -- across the older client builds supported by this addon.
+    local bg = f:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints(f)
+    if bg.SetColorTexture then
+        bg:SetColorTexture(0.12, 0.015, 0.015, 0.96)
     else
-        local bg = f:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints(f)
-        bg:SetTexture(0.12, 0.015, 0.015, 0.96)
+        bg:SetTexture("Interface\\Buttons\\WHITE8X8")
+        bg:SetVertexColor(0.12, 0.015, 0.015, 0.96)
+    end
+
+    local border = f:CreateTexture(nil, "BORDER")
+    border:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+    border:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
+    if border.SetColorTexture then
+        border:SetColorTexture(1, 0.25, 0.05, 0.9)
+    else
+        border:SetTexture("Interface\\Buttons\\WHITE8X8")
+        border:SetVertexColor(1, 0.25, 0.05, 0.9)
+    end
+    -- Inset dark panel leaves a clearly visible warning-colored rim.
+    local panel = f:CreateTexture(nil, "ARTWORK")
+    panel:SetPoint("TOPLEFT", f, "TOPLEFT", 3, -3)
+    panel:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -3, 3)
+    if panel.SetColorTexture then
+        panel:SetColorTexture(0.045, 0.008, 0.008, 0.98)
+    else
+        panel:SetTexture("Interface\\Buttons\\WHITE8X8")
+        panel:SetVertexColor(0.045, 0.008, 0.008, 0.98)
     end
 
     local fs = f:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
     fs:SetPoint("CENTER", f, "CENTER", 0, 0)
     fs:SetWidth(1060)
     fs:SetJustifyH("CENTER")
-    local font, _, flags = fs:GetFont()
+    local font = fs:GetFont()
     if font then fs:SetFont(font, 34, "THICKOUTLINE") end
     fs:SetTextColor(1, 0.88, 0.12, 1)
     if fs.SetShadowOffset then fs:SetShadowOffset(2, -2) end
     if fs.SetShadowColor then fs:SetShadowColor(0, 0, 0, 1) end
+    fs:SetAlpha(1)
     f.text = fs
 
     -- A gentle pulse draws attention without a loud sound or rapid flashing.
@@ -604,7 +625,7 @@ local function Command(message)
         Print(string.format("移除ID:%d | 快照成功:%d 失败:%d | 快照发现移除:%d", Reminder.debug.removedIDs, Reminder.debug.snapshotOK, Reminder.debug.snapshotFailed, Reminder.debug.snapshotRemoved))
         Print("最近移除: " .. tostring(Reminder.debug.lastRemoval))
         local alert = Reminder.alert
-        Print(string.format("提醒诊断: refresh:%d missing:%d shown:%s alpha:%s text:%s", Reminder.debug.alertRefreshes, Reminder.debug.alertMissingCount, tostring(alert and alert:IsShown() or false), tostring(alert and alert:GetAlpha() or "-"), tostring(Reminder.debug.alertLastText)))
+        Print(string.format("提醒诊断: refresh:%d missing:%d shown:%s visible:%s alpha:%s effective:%s strata:%s text:%s", Reminder.debug.alertRefreshes, Reminder.debug.alertMissingCount, tostring(alert and alert:IsShown() or false), tostring(alert and alert:IsVisible() or false), tostring(alert and alert:GetAlpha() or "-"), tostring(alert and alert:GetEffectiveAlpha() or "-"), tostring(alert and alert:GetFrameStrata() or "-"), tostring(Reminder.debug.alertLastText)))
         local activeIDs = {}
         for instanceID, key in pairs(Reminder.auraInstanceSpells) do
             activeIDs[#activeIDs + 1] = instanceID
