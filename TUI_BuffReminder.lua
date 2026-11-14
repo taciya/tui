@@ -613,6 +613,39 @@ local function Command(message)
         end
         for _, entry in ipairs(Entries()) do
             Print((entry.name or tostring(entry.spellID)) .. " | " .. tostring(Reminder.states[entry.key] or "UNKNOWN"))
+            if entry.spellID then
+                local aura, supported, uncertain = ReadByID(entry.spellID)
+                local instanceID = aura and Field(aura, "auraInstanceID") or nil
+                Print("  SpellID查询: " .. (not supported and "UNAVAILABLE" or uncertain and "UNKNOWN" or aura and ("PRESENT instance:" .. tostring(instanceID or "-")) or "ABSENT"))
+            end
+            if entry.name and C_UnitAuras and type(C_UnitAuras.GetAuraDataBySpellName) == "function" then
+                local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", entry.name, "HELPFUL")
+                local name, nameOK = Field(aura, "name")
+                local auraID, idOK = Field(aura, "spellId")
+                if not idOK then auraID, idOK = Field(aura, "spellID") end
+                local instanceID, instanceOK = Field(aura, "auraInstanceID")
+                Print("  SpellName查询: " .. (not ok and "ERROR" or Secret(aura) and "UNKNOWN" or not aura and "ABSENT" or string.format("PRESENT name:%s id:%s instance:%s", nameOK and tostring(name) or "?", idOK and tostring(auraID) or "?", instanceOK and tostring(instanceID) or "?")))
+            end
+            if entry.name and C_UnitAuras and type(C_UnitAuras.GetAuraDataByIndex) == "function" then
+                local found = false
+                local count, matches = 0, 0
+                for index = 1, 255 do
+                    local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", index, "HELPFUL")
+                    if not ok or Secret(aura) then break end
+                    if aura == nil then break end
+                    count = count + 1
+                    local auraName = Field(aura, "name")
+                    if auraName == entry.name then
+                        matches = matches + 1
+                        found = true
+                        local auraID = Field(aura, "spellId")
+                        if not auraID then auraID = Field(aura, "spellID") end
+                        local instanceID = Field(aura, "auraInstanceID")
+                        Print(string.format("  Index匹配:%d name:%s id:%s instance:%s", index, tostring(auraName), tostring(auraID or "?"), tostring(instanceID or "?")))
+                    end
+                end
+                Print(string.format("  Index扫描: %d项 | 匹配:%d | %s", count, matches, found and "PRESENT" or "ABSENT/UNKNOWN"))
+            end
         end
     elseif cmd == "test" then
         local f = AlertFrame()
