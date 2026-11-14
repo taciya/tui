@@ -266,6 +266,10 @@ end
 
 local function RememberAuraInstance(aura, source)
     if not aura or Secret(aura) then return end
+    -- Preserve provenance when a snapshot sees an instance previously reported
+    -- by addedAuras, but only the actual event may advance its event sequence
+    -- or clear a removal latch.
+    local explicitAddedEvent = source == "event-added"
     local instanceID, instanceOK = Field(aura, "auraInstanceID")
     if not instanceOK or type(instanceID) ~= "number" then return end
     local spellID, spellOK = Field(aura, "spellId")
@@ -291,7 +295,7 @@ local function RememberAuraInstance(aura, source)
         -- Only an explicit UNIT_AURA addedAuras record or a direct positive
         -- aura query can clear a confirmed-removal latch. Snapshot enumeration
         -- alone is not sufficient on this client because it can expose stale IDs.
-        if source == "event-added" then
+        if explicitAddedEvent then
             Reminder.eventSequence = Reminder.eventSequence + 1
             Reminder.auraInstanceAddedSequence[instanceID] = Reminder.eventSequence
             Reminder.confirmedRemovedKeys[entry.key] = nil
@@ -369,6 +373,7 @@ local function SnapshotAuraInstances()
         if not current[instanceID] then
             Reminder.auraInstanceSpells[instanceID] = nil
             Reminder.auraInstanceSources[instanceID] = nil
+            Reminder.auraInstanceAddedSequence[instanceID] = nil
             -- Keep the historical key until a delayed removedAuraInstanceIDs
             -- event arrives; active presence is tracked separately above.
             Reminder.auraInstanceDetails[instanceID] = nil
@@ -567,13 +572,36 @@ function Reminder.CheckEntry(entry)
         return
     end
 
-    local state, aura = ReadAura(entry)
-    -- A confirmed removal is a latch: only an explicit UNIT_AURA addedAuras
-    -- record clears it in RememberAuraInstance(). A spell/name lookup returning
-    -- PRESENT is not proof that a newly observed instance is live; this client
-    -- can return stale/recycled aura data.
-    if Reminder.confirmedRemovedKeys[entry.key] then
+    -- An instance explicitly reported by UNIT_AURA.addedAuras is stronger
+    -- evidence than spell-ID/name lookups on this client. Those lookups can
+    -- report UNKNOWN/ABSENT while the event-added instance is still active.
+    -- Snapshot-only instances do not qualify; removed events and complete
+    -- snapshot diffs retire the active mapping.
+    local eventAddedInstanceID
+    local lastRemoval = Reminder.lastRemovalSequence[entry.key] or 0
+    for instanceID, instanceKey in pairs(Reminder.auraInstanceSpells) do
+        if instanceKey == entry.key
+            and Reminder.auraInstanceSources[instanceID] == "event-added"
+            and (Reminder.auraInstanceAddedSequence[instanceID] or 0) > lastRemoval then
+            eventAddedInstanceID = instanceID
+            break
+        end
+    end
+
+    local state, aura
+    if eventAddedInstanceID then
+        state = "PRESENT"
+        aura = ReadAuraByInstanceID(eventAddedInstanceID)
+    else
+        state, aura = ReadAura(entry)
+    end
+
+    -- A confirmed removal is a latch: only a later explicit UNIT_AURA
+    -- addedAuras event clears it. Direct spell/name lookup is not equivalent.
+    if Reminder.confirmedRemovedKeys[entry.key] and not eventAddedInstanceID then
         state, aura = "MISSING", nil
+    elseif eventAddedInstanceID then
+        state = "PRESENT"
     elseif Reminder.snapshotValid and Reminder.instanceTrackedKeys[entry.key] then
         if state == "MISSING" then
             aura = nil
