@@ -638,6 +638,7 @@ local function Command(message)
         Print(string.format("移除ID:%d | 快照成功:%d 失败:%d | 快照发现移除:%d", Reminder.debug.removedIDs, Reminder.debug.snapshotOK, Reminder.debug.snapshotFailed, Reminder.debug.snapshotRemoved))
         Print("最近移除: " .. tostring(Reminder.debug.lastRemoval))
         Print("现代名称扫描: " .. tostring(Reminder.debug.lastModernScan or "尚未执行"))
+        Print("Index API错误: " .. tostring(Reminder.debug.lastIndexError or "none"))
         local alert = Reminder.alert
         Print(string.format("提醒诊断: refresh:%d missing:%d shown:%s visible:%s alpha:%s effective:%s strata:%s text:%s", Reminder.debug.alertRefreshes, Reminder.debug.alertMissingCount, tostring(alert and alert:IsShown() or false), tostring(alert and alert:IsVisible() or false), tostring(alert and alert:GetAlpha() or "-"), tostring(alert and alert:GetEffectiveAlpha() or "-"), tostring(alert and alert:GetFrameStrata() or "-"), tostring(Reminder.debug.alertLastText)))
         local activeIDs = {}
@@ -676,7 +677,12 @@ local function Command(message)
                 local stopReason = "LIMIT"
                 for index = 1, 255 do
                     local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", index, "HELPFUL")
-                    if not ok then stopReason = "API_ERROR@" .. index; break end
+                    if not ok then
+                        local err = tostring(aura):gsub("[%r\n]+", " ")
+                        Reminder.debug.lastIndexError = string.format("index:%d error:%s", index, err)
+                        stopReason = "API_ERROR@" .. index
+                        break
+                    end
                     if Secret(aura) then stopReason = "SECRET_AURA@" .. index; break end
                     if aura == nil then stopReason = "END@" .. index; break end
                     count = count + 1
