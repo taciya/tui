@@ -88,7 +88,7 @@ local function KeyFor(id, name)
     return id and tostring(id) or ("name:" .. string.lower(name))
 end
 
-local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {}, auraInstanceSpells = {}, auraInstanceDetails = {}, lastAuraInstanceSet = nil, instanceTrackedKeys = {}, confirmedRemovedKeys = {}, snapshotPresent = {}, snapshotValid = false, debug = { auraEvents = 0, playerAuraEvents = 0, updateInfoEvents = 0, removedIDs = 0, snapshotOK = 0, snapshotFailed = 0, snapshotRemoved = 0, lastRemoval = "none", alertRefreshes = 0, alertMissingCount = 0, alertLastText = "" } }
+local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {}, auraInstanceSpells = {}, auraInstanceDetails = {}, auraInstanceHistory = {}, lastAuraInstanceSet = nil, instanceTrackedKeys = {}, confirmedRemovedKeys = {}, snapshotPresent = {}, snapshotValid = false, debug = { auraEvents = 0, playerAuraEvents = 0, updateInfoEvents = 0, removedIDs = 0, snapshotOK = 0, snapshotFailed = 0, snapshotRemoved = 0, lastRemoval = "none", alertRefreshes = 0, alertMissingCount = 0, alertLastText = "" } }
 
 local function ReadByID(id)
     if not id or not C_UnitAuras then return nil, false, false end
@@ -220,6 +220,7 @@ local function RememberAuraInstance(aura, source)
     local entry = EntryForSpell(spellOK and spellID or nil, nameOK and name or nil)
     if entry then
         Reminder.auraInstanceSpells[instanceID] = entry.key
+        Reminder.auraInstanceHistory[instanceID] = entry.key
         Reminder.auraInstanceDetails[instanceID] = {
             spellID = spellOK and spellID or nil,
             name = nameOK and name or nil,
@@ -244,7 +245,7 @@ local function HasOtherAuraInstance(key, excludedInstanceID)
 end
 
 local function MarkRemovedAuraInstance(instanceID, source)
-    local key = Reminder.auraInstanceSpells[instanceID]
+    local key = Reminder.auraInstanceSpells[instanceID] or Reminder.auraInstanceHistory[instanceID]
     if not key then
         if Reminder.debug.lastRemoval == "none" then
             Reminder.debug.lastRemoval = tostring(instanceID) .. " unmapped (" .. tostring(source or "unknown") .. ")"
@@ -254,6 +255,7 @@ local function MarkRemovedAuraInstance(instanceID, source)
     local detail = Reminder.auraInstanceDetails[instanceID] or {}
     Reminder.debug.lastRemoval = string.format("%s -> %s [spellID:%s name:%s] (%s)", tostring(instanceID), tostring(key), tostring(detail.spellID or "-"), tostring(detail.name or "-"), tostring(source or "unknown"))
     Reminder.auraInstanceSpells[instanceID] = nil
+    Reminder.auraInstanceHistory[instanceID] = nil
     Reminder.auraInstanceDetails[instanceID] = nil
     if not HasOtherAuraInstance(key, instanceID) then
         Reminder.states[key] = "MISSING"
@@ -292,6 +294,8 @@ local function SnapshotAuraInstances()
     for instanceID in pairs(Reminder.auraInstanceSpells) do
         if not current[instanceID] then
             Reminder.auraInstanceSpells[instanceID] = nil
+            -- Keep the historical key until a delayed removedAuraInstanceIDs
+            -- event arrives; active presence is tracked separately above.
             Reminder.auraInstanceDetails[instanceID] = nil
         end
     end
