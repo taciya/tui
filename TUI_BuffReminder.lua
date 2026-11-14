@@ -779,11 +779,8 @@ local function OnEvent(_, event, ...)
         Reminder.snapshotValid = false
         RefreshAlert()
     elseif event == "PLAYER_REGEN_ENABLED" then
-        -- Combat restrictions can lift without a UNIT_AURA delta. Rebuild a
-        -- fresh baseline once out of combat; failure remains UNKNOWN, not absent.
-        SnapshotAuraInstances("snapshot")
-        Reminder.CheckAll()
-    elseif event == "PLAYER_ENTERING_WORLD" then
+        -- Combat restrictions can lift without a UNIT_AURA delta. Throw away
+        -- the combat-era cache and rebuild once the client is unrestricted.
         Reminder.auraInstanceSpells = {}
         Reminder.auraInstanceData = {}
         Reminder.auraInstanceDetails = {}
@@ -793,7 +790,20 @@ local function OnEvent(_, event, ...)
         Reminder.lastAuraInstanceSet = nil
         Reminder.snapshotPresent = {}
         Reminder.snapshotValid = false
-        SnapshotAuraInstances("snapshot")
+        SnapshotAuraInstances("full-update")
+        Reminder.CheckAll()
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        -- A new world/instance is a new player-aura baseline.
+        Reminder.auraInstanceSpells = {}
+        Reminder.auraInstanceData = {}
+        Reminder.auraInstanceDetails = {}
+        Reminder.auraInstanceHistory = {}
+        Reminder.auraInstanceSources = {}
+        Reminder.auraInstanceAddedSequence = {}
+        Reminder.lastAuraInstanceSet = nil
+        Reminder.snapshotPresent = {}
+        Reminder.snapshotValid = false
+        SnapshotAuraInstances("full-update")
         Reminder.CheckAll()
     else
         Reminder.CheckAll()
