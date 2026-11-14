@@ -789,8 +789,6 @@ local function OnEvent(_, event, ...)
         Reminder.auraInstanceDetails = {}
         Reminder.auraInstanceHistory = {}
         Reminder.auraInstanceSources = {}
-        Reminder.auraInstanceAddedSequence = {}
-        Reminder.lastAuraInstanceSet = nil
         Reminder.snapshotPresent = {}
         Reminder.snapshotValid = false
         SnapshotAuraInstances("full-update")
@@ -866,7 +864,7 @@ local function Command(message)
         Reminder.states, Reminder.expirations, Reminder.tokens = {}, {}, {}
         Reminder.auraInstanceSpells, Reminder.auraInstanceData = {}, {}
         Reminder.auraInstanceDetails, Reminder.auraInstanceHistory = {}, {}
-        Reminder.auraInstanceSources, Reminder.auraInstanceAddedSequence = {}, {}
+        Reminder.auraInstanceSources = {}
         Reminder.instanceTrackedKeys, Reminder.confirmedRemovedKeys = {}, {}
         Reminder.snapshotPresent, Reminder.snapshotValid = {}, false
         RefreshAlert()
