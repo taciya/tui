@@ -737,9 +737,16 @@ local function HandleCast(eventArgs)
             if duration and duration > 0 then
                 local expiry = now + duration
                 Reminder.expirations[entry.key] = expiry
-                Reminder.states[entry.key] = "PRESENT"
                 ScheduleExpiry(entry, expiry)
+                DebugLog("EVENT", "Monitored buff cast observed", {
+                    name = entry.name or tostring(entry.spellID),
+                    spellID = entry.spellID,
+                    duration = duration
+                })
             end
+            -- A successful cast is not proof that the aura was applied.
+            -- Keep the confirmed reminder state unchanged until UNIT_AURA or
+            -- an authoritative aura lookup confirms the effect is present.
         end
     end
     RefreshAlert()
