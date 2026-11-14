@@ -145,14 +145,24 @@ local function ReadByNameModern(name)
     if type(C_UnitAuras.GetAuraDataBySpellName) == "function" then
         supported = true
         local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, "HELPFUL")
-        if not ok or Secret(aura) then unknown = true
-        elseif aura then return aura, true, false end
+        if not ok or Secret(aura) then
+            unknown = true
+        elseif aura then
+            Reminder.debug.lastNameLookup = "PRESENT"
+            return aura, true, false
+        else
+            -- A successful direct spell-name lookup returning ordinary nil is
+            -- a definitive absence result. Do not let an unavailable/tainted
+            -- index scan downgrade this result to UNKNOWN during combat.
+            Reminder.debug.lastNameLookup = "ABSENT"
+            return nil, true, false, true
+        end
     end
     if type(C_UnitAuras.GetAuraDataByIndex) == "function" then
         supported = true
-        -- The Infinite client can reject indexed aura access while this addon
-        -- is tainted in combat. Do not call it there: the failure is not evidence
-        -- that the aura is absent and can poison subsequent detection.
+        -- Indexed aura access can be taint-restricted during combat. Skipping
+        -- it is not evidence of absence; only a successful direct lookup above
+        -- or a complete out-of-combat scan can establish absence.
         local inCombat = type(InCombatLockdown) == "function" and InCombatLockdown()
         if inCombat then
             unknown = true
