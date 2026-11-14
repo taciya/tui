@@ -150,19 +150,28 @@ local function ReadByNameModern(name)
     end
     if type(C_UnitAuras.GetAuraDataByIndex) == "function" then
         supported = true
-        for i = 1, 255 do
-            local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
-            if not ok then unknown = true; break end
-            if aura == nil and not Secret(aura) then complete = true; break end
-            if Secret(aura) then
-                unknown = true
-            else
-                local auraName, readable = Field(aura, "name")
-                if readable and auraName == name then return aura, true, false end
-                if not readable then unknown = true end
+        -- The Infinite client can reject indexed aura access while this addon
+        -- is tainted in combat. Do not call it there: the failure is not evidence
+        -- that the aura is absent and can poison subsequent detection.
+        local inCombat = type(InCombatLockdown) == "function" and InCombatLockdown()
+        if inCombat then
+            unknown = true
+            Reminder.debug.lastIndexScan = "SKIPPED_IN_COMBAT"
+        else
+            for i = 1, 255 do
+                local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
+                if not ok then unknown = true; break end
+                if aura == nil and not Secret(aura) then complete = true; break end
+                if Secret(aura) then
+                    unknown = true
+                else
+                    local auraName, readable = Field(aura, "name")
+                    if readable and auraName == name then return aura, true, false end
+                    if not readable then unknown = true end
+                end
             end
+            if not complete then unknown = true end
         end
-        if not complete then unknown = true end
     end
     return nil, supported, unknown, complete
 end
@@ -244,6 +253,10 @@ local function RememberAuraInstance(aura, source)
     if not spellOK and not nameOK then return end
     local entry = EntryForSpell(spellOK and spellID or nil, nameOK and name or nil)
     if entry then
+        -- Snapshot enumeration follows the UNIT_AURA update and may encounter
+        -- the same instance again. Never downgrade explicit event provenance.
+        local previousSource = Reminder.auraInstanceSources[instanceID]
+        if previousSource == "event-added" then source = "event-added" end
         Reminder.auraInstanceSpells[instanceID] = entry.key
         Reminder.auraInstanceHistory[instanceID] = entry.key
         Reminder.auraInstanceSources[instanceID] = source or "snapshot"
@@ -388,8 +401,8 @@ local function AlertFrame()
     -- Compact warning banner: large enough to read, without covering the play
     -- field. Width is capped for smaller resolutions.
     local screenWidth = UIParent and UIParent.GetWidth and UIParent:GetWidth() or 1280
-    local alertWidth = math.min(720, math.max(420, screenWidth - 80))
-    f:SetSize(alertWidth, 88)
+    local alertWidth = math.min(380, math.max(300, screenWidth - 40))
+    f:SetSize(alertWidth, 52)
     f:SetPoint("CENTER", UIParent, "CENTER", 0, 105)
 
     -- Use an explicit color texture: SetTexture(r,g,b,a) is not portable
@@ -425,10 +438,10 @@ local function AlertFrame()
 
     local fs = f:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
     fs:SetPoint("CENTER", f, "CENTER", 0, 0)
-    fs:SetWidth(alertWidth - 40)
+    fs:SetWidth(alertWidth - 28)
     fs:SetJustifyH("CENTER")
     local font = fs:GetFont()
-    if font then fs:SetFont(font, 24, "THICKOUTLINE") end
+    if font then fs:SetFont(font, 16, "THICKOUTLINE") end
     fs:SetTextColor(1, 0.88, 0.12, 1)
     if fs.SetShadowOffset then fs:SetShadowOffset(2, -2) end
     if fs.SetShadowColor then fs:SetShadowColor(0, 0, 0, 1) end
@@ -738,6 +751,11 @@ local function Command(message)
                 Print("  SpellName查询: " .. (not ok and "ERROR" or Secret(aura) and "UNKNOWN" or not aura and "ABSENT" or string.format("PRESENT name:%s id:%s instance:%s", nameOK and tostring(name) or "?", idOK and tostring(auraID) or "?", instanceOK and tostring(instanceID) or "?")))
             end
             if entry.name and C_UnitAuras and type(C_UnitAuras.GetAuraDataByIndex) == "function" then
+                local inCombat = type(InCombatLockdown) == "function" and InCombatLockdown()
+                if inCombat then
+                    Print("  Index扫描: SKIPPED_IN_COMBAT | UNKNOWN（避免触发客户端Taint）")
+                    Print("  Index API错误: 未调用")
+                else
                 local found = false
                 local count, matches = 0, 0
                 local stopReason = "LIMIT"
@@ -765,6 +783,7 @@ local function Command(message)
                 end
                 Print(string.format("  Index扫描: %d项 | 匹配:%d | stop:%s | %s", count, matches, stopReason, found and "PRESENT" or (stopReason:match("^END") and "ABSENT" or "UNKNOWN")))
                 Print("  Index API错误: " .. tostring(Reminder.debug.lastIndexError or "none"))
+                end
             else
                 Print("  Index扫描: API不可用")
                 Print("  Index API错误: API不可用")
