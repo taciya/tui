@@ -732,7 +732,7 @@ local function HandleCast(eventArgs)
                 break
             end
         end
-        if matched then
+        if matched and not Reminder.confirmedRemovedKeys[entry.key] then
             local duration = Reminder.durations[entry.key]
             if duration and duration > 0 then
                 local expiry = now + duration
@@ -741,8 +741,7 @@ local function HandleCast(eventArgs)
                 DebugLog("EVENT", "Monitored buff cast observed", {
                     name = entry.name or tostring(entry.spellID),
                     spellID = entry.spellID,
-                    duration = duration,
-                    confirmedRemoved = Reminder.confirmedRemovedKeys[entry.key] == true
+                    duration = duration
                 })
             end
             -- A successful cast is not proof that the aura was applied.
