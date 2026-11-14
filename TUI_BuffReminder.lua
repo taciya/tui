@@ -351,9 +351,18 @@ local function MarkRemovedAuraInstance(instanceID, source)
     Reminder.auraInstanceSources[instanceID] = nil
     Reminder.auraInstanceDetails[instanceID] = nil
     if not HasOtherAuraInstance(key, instanceID) then
+        local previous = Reminder.states[key]
         Reminder.states[key] = "MISSING"
         Reminder.confirmedRemovedKeys[key] = true
         Reminder.expirations[key] = nil
+        if previous ~= "MISSING" then
+            DebugLog("INFO", "Reminder state changed", {
+                name = detail.name or tostring(key),
+                spellID = detail.spellID or tonumber(key),
+                previous = previous or "UNSET",
+                current = "MISSING"
+            })
+        end
     end
 end
 
