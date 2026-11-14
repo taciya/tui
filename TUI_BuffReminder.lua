@@ -673,7 +673,11 @@ local function Command(message)
         for _, instanceID in ipairs(activeIDs) do
             local key = Reminder.auraInstanceSpells[instanceID]
             local detail = Reminder.auraInstanceDetails[instanceID] or {}
-            Print(string.format("当前实例:%s -> %s | AuraID:%s | 名称:%s", tostring(instanceID), tostring(key), tostring(detail.spellID or "-"), tostring(detail.name or "-")))
+            local source = Reminder.auraInstanceSources[instanceID] or "unknown"
+            Print(string.format("当前实例:%s -> %s | AuraID:%s | 名称:%s | 来源:%s", tostring(instanceID), tostring(key), tostring(detail.spellID or "-"), tostring(detail.name or "-"), tostring(source)))
+        end
+        for _, entry in ipairs(Entries()) do
+            Print(string.format("%s 移除锁定:%s | 快照存在:%s", tostring(entry.name or entry.key), tostring(Reminder.confirmedRemovedKeys[entry.key] or false), tostring(Reminder.snapshotPresent[entry.key] or false)))
         end
         for _, entry in ipairs(Entries()) do
             if Reminder.instanceTrackedKeys[entry.key] then
