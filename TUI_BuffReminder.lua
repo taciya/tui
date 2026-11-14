@@ -59,6 +59,10 @@ end
 local CLASS_BY_SPELL = {
     [324] = "SHAMAN",
 }
+local CLASS_BY_NAME = {
+    ["闪电之盾"] = "SHAMAN",
+    ["lightning shield"] = "SHAMAN",
+}
 
 local function PlayerClassToken()
     if type(UnitClass) ~= "function" then return nil end
@@ -85,7 +89,8 @@ local function Normalize(raw)
         return nil
     end
     if not id and not name then return nil end
-    class = class or (id and CLASS_BY_SPELL[id]) or nil
+    class = class or (id and CLASS_BY_SPELL[id])
+        or (name and CLASS_BY_NAME[string.lower(name)]) or nil
     return { spellID = id, name = name, class = class }
 end
 
@@ -632,7 +637,8 @@ local function Add(argument)
     if not name or name == "" then Print("无法识别法术，请输入法术名称或 ID"); return end
     local key = KeyFor(id, name)
     if TUI_BuffReminderDB[key] then Print(name .. " 已在监控列表中"); return end
-    local class = (id and CLASS_BY_SPELL[id]) or PlayerClassToken()
+    local class = (id and CLASS_BY_SPELL[id])
+        or (name and CLASS_BY_NAME[string.lower(name)]) or PlayerClassToken()
     TUI_BuffReminderDB[key] = { spellID = id, name = name, class = class }
     Reminder.states[key] = "UNKNOWN"
     Print("已添加：" .. name .. (id and (" (ID:" .. id .. ")") or "")
