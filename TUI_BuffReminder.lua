@@ -113,7 +113,22 @@ local function KeyFor(id, name)
     return id and tostring(id) or ("name:" .. string.lower(name))
 end
 
-local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {}, auraInstanceSpells = {}, auraInstanceDetails = {}, auraInstanceHistory = {}, auraInstanceSources = {}, auraInstanceAddedSequence = {}, eventSequence = 0, lastRemovalSequence = {}, lastAuraInstanceSet = nil, instanceTrackedKeys = {}, confirmedRemovedKeys = {}, snapshotPresent = {}, snapshotValid = false, debug = { auraEvents = 0, playerAuraEvents = 0, updateInfoEvents = 0, removedIDs = 0, snapshotOK = 0, snapshotFailed = 0, snapshotRemoved = 0, lastRemoval = "none", alertRefreshes = 0, alertMissingCount = 0, alertLastText = "" } }
+local Reminder = {
+    states = {}, durations = {}, expirations = {}, tokens = {},
+    -- Private, player-only AuraCache. It is intentionally scoped to this file;
+    -- no global hooks, frames, or event handlers are installed for other modules.
+    auraInstanceSpells = {}, auraInstanceData = {}, auraInstanceDetails = {},
+    auraInstanceHistory = {}, auraInstanceSources = {},
+    instanceTrackedKeys = {}, confirmedRemovedKeys = {}, snapshotPresent = {},
+    snapshotValid = false,
+    debug = {
+        auraEvents = 0, playerAuraEvents = 0, updateInfoEvents = 0,
+        addedIDs = 0, updatedIDs = 0, removedIDs = 0, fullUpdates = 0,
+        snapshotOK = 0, snapshotFailed = 0,
+        lastRemoval = "none", lastUpdate = "none",
+        alertRefreshes = 0, alertMissingCount = 0, alertLastText = ""
+    }
+}
 
 local function ReadByID(id)
     if not id or not C_UnitAuras then return nil, false, false end
@@ -278,13 +293,15 @@ local function RememberAuraInstance(aura, source)
     if not spellOK and not nameOK then return end
     local entry = EntryForSpell(spellOK and spellID or nil, nameOK and name or nil)
     if entry then
-        -- Snapshot enumeration follows the UNIT_AURA update and may encounter
-        -- the same instance again. Never downgrade explicit event provenance.
+        -- A snapshot must never downgrade stronger event provenance.
         local previousSource = Reminder.auraInstanceSources[instanceID]
-        if previousSource == "event-added" then source = "event-added" end
+        if previousSource == "event-added" or previousSource == "event-updated" then
+            if source == "snapshot" then source = previousSource end
+        end
         Reminder.auraInstanceSpells[instanceID] = entry.key
         Reminder.auraInstanceHistory[instanceID] = entry.key
         Reminder.auraInstanceSources[instanceID] = source or "snapshot"
+        Reminder.auraInstanceData[instanceID] = aura
         Reminder.auraInstanceDetails[instanceID] = {
             spellID = spellOK and spellID or nil,
             name = nameOK and name or nil,
@@ -292,12 +309,9 @@ local function RememberAuraInstance(aura, source)
             entrySpellID = entry.spellID,
         }
         Reminder.instanceTrackedKeys[entry.key] = true
-        -- Only an explicit UNIT_AURA addedAuras record or a direct positive
-        -- aura query can clear a confirmed-removal latch. Snapshot enumeration
-        -- alone is not sufficient on this client because it can expose stale IDs.
-        if explicitAddedEvent then
-            Reminder.eventSequence = Reminder.eventSequence + 1
-            Reminder.auraInstanceAddedSequence[instanceID] = Reminder.eventSequence
+        -- Added/updated events are positive evidence. A successful complete
+        -- snapshot is also positive evidence after a full-update invalidation.
+        if explicitAddedEvent or source == "event-updated" or source == "snapshot-confirmed" then
             Reminder.confirmedRemovedKeys[entry.key] = nil
         end
     end
@@ -305,13 +319,9 @@ end
 
 local function HasOtherAuraInstance(key, excludedInstanceID)
     for instanceID, instanceKey in pairs(Reminder.auraInstanceSpells) do
-        -- A snapshot-only sibling is not sufficient evidence of continued
-        -- presence on this client: its instance list can retain stale IDs.
-        -- Only an explicit addedAuras event confirms a new live sibling.
-        if instanceID ~= excludedInstanceID and instanceKey == key
-            and Reminder.auraInstanceSources[instanceID] == "event-added"
-            and (Reminder.auraInstanceAddedSequence[instanceID] or 0)
-                > (Reminder.lastRemovalSequence[key] or 0) then
+        -- Every mapped instance belongs to the current cache baseline or to a
+        -- later UNIT_AURA delta; a sibling prevents a false MISSING transition.
+        if instanceID ~= excludedInstanceID and instanceKey == key then
             return true
         end
     end
@@ -327,13 +337,11 @@ local function MarkRemovedAuraInstance(instanceID, source)
         return
     end
     local detail = Reminder.auraInstanceDetails[instanceID] or {}
-    Reminder.eventSequence = Reminder.eventSequence + 1
-    Reminder.lastRemovalSequence[key] = Reminder.eventSequence
     Reminder.debug.lastRemoval = string.format("%s -> %s [spellID:%s name:%s] (%s)", tostring(instanceID), tostring(key), tostring(detail.spellID or "-"), tostring(detail.name or "-"), tostring(source or "unknown"))
     Reminder.auraInstanceSpells[instanceID] = nil
+    Reminder.auraInstanceData[instanceID] = nil
     Reminder.auraInstanceHistory[instanceID] = nil
     Reminder.auraInstanceSources[instanceID] = nil
-    Reminder.auraInstanceAddedSequence[instanceID] = nil
     Reminder.auraInstanceDetails[instanceID] = nil
     if not HasOtherAuraInstance(key, instanceID) then
         Reminder.states[key] = "MISSING"
@@ -342,86 +350,134 @@ local function MarkRemovedAuraInstance(instanceID, source)
     end
 end
 
-local function SnapshotAuraInstances()
+local function SnapshotAuraInstances(source)
     if not C_UnitAuras or type(C_UnitAuras.GetUnitAuraInstanceIDs) ~= "function" then
+        Reminder.snapshotValid = false
         return false
     end
+
     local ok, ids = pcall(C_UnitAuras.GetUnitAuraInstanceIDs, "player", "HELPFUL")
-    if not ok or Secret(ids) or type(ids) ~= "table" then Reminder.debug.snapshotFailed = Reminder.debug.snapshotFailed + 1; return false end
+    if not ok or Secret(ids) or type(ids) ~= "table" then
+        Reminder.snapshotValid = false
+        Reminder.debug.snapshotFailed = Reminder.debug.snapshotFailed + 1
+        return false
+    end
 
-    local current = {}
+    local current, present, snapshotAuras = {}, {}, {}
     for _, instanceID in ipairs(ids) do
-        if Secret(instanceID) or type(instanceID) ~= "number" then Reminder.debug.snapshotFailed = Reminder.debug.snapshotFailed + 1; return false end
+        if Secret(instanceID) or type(instanceID) ~= "number" then
+            Reminder.snapshotValid = false
+            Reminder.debug.snapshotFailed = Reminder.debug.snapshotFailed + 1
+            return false
+        end
+        local aura = ReadAuraByInstanceID(instanceID)
+        -- An ID list with an unreadable member is not a complete snapshot.
+        -- Never infer absence from a partial enumeration or partially commit it.
+        if not aura then
+            Reminder.snapshotValid = false
+            Reminder.debug.snapshotFailed = Reminder.debug.snapshotFailed + 1
+            return false
+        end
         current[instanceID] = true
-        RememberAuraInstance(ReadAuraByInstanceID(instanceID))
+        snapshotAuras[#snapshotAuras + 1] = aura
     end
 
-    -- A set difference is a second source of removal information for clients
-    -- that expose instance IDs but omit removedAuraInstanceIDs from updateInfo.
-    if Reminder.lastAuraInstanceSet then
-        for instanceID in pairs(Reminder.lastAuraInstanceSet) do
-            if not current[instanceID] then
-                MarkRemovedAuraInstance(instanceID, "snapshot")
-                Reminder.debug.snapshotRemoved = Reminder.debug.snapshotRemoved + 1
-            end
-        end
+    -- Commit only after the entire enumeration has been read successfully.
+    for _, aura in ipairs(snapshotAuras) do
+        local sourceTag = source == "full-update" and "snapshot-confirmed" or "snapshot"
+        RememberAuraInstance(aura, sourceTag)
+        local instanceID = Field(aura, "auraInstanceID")
+        local key = instanceID and Reminder.auraInstanceSpells[instanceID]
+        if key then present[key] = true end
     end
-    -- Drop stale mappings, then derive an authoritative per-entry presence view
-    -- from the complete instance-ID snapshot. This prevents a stale spell/name
-    -- lookup from changing a confirmed removal back to PRESENT.
-    for instanceID in pairs(Reminder.auraInstanceSpells) do
-        if not current[instanceID] then
+
+    -- This function is now called only at initialization, world entry, and
+    -- explicit full updates, never after every delta event. Its set is therefore
+    -- a fresh baseline, not a competing per-event removal detector.
+    for instanceID, key in pairs(Reminder.auraInstanceSpells) do
+        if not current[instanceID] and Reminder.auraInstanceSources[instanceID] == "snapshot" then
             Reminder.auraInstanceSpells[instanceID] = nil
+            Reminder.auraInstanceData[instanceID] = nil
             Reminder.auraInstanceSources[instanceID] = nil
-            Reminder.auraInstanceAddedSequence[instanceID] = nil
-            -- Keep the historical key until a delayed removedAuraInstanceIDs
-            -- event arrives; active presence is tracked separately above.
             Reminder.auraInstanceDetails[instanceID] = nil
         end
     end
-    local present = {}
-    for instanceID in pairs(current) do
-        local key = Reminder.auraInstanceSpells[instanceID]
-        if key then present[key] = true end
-    end
+
     Reminder.snapshotPresent = present
     Reminder.snapshotValid = true
-    Reminder.lastAuraInstanceSet = current
     Reminder.debug.snapshotOK = Reminder.debug.snapshotOK + 1
     return true
 end
 
 local function HandleAuraUpdate(updateInfo)
-    if updateInfo and not Secret(updateInfo) and type(updateInfo) == "table" then Reminder.debug.updateInfoEvents = Reminder.debug.updateInfoEvents + 1 end
-    if updateInfo and not Secret(updateInfo) and type(updateInfo) == "table" then
-        -- Process removals before additions in the same UNIT_AURA payload.
-        -- A refresh/reapplication can remove an old instance and add a new one
-        -- in one update; the new event-added instance must win and clear the
-        -- removal latch.
-        local removed = updateInfo.removedAuraInstanceIDs
-        if not Secret(removed) and type(removed) == "table" then
-            for _, instanceID in ipairs(removed) do
-                if not Secret(instanceID) and type(instanceID) == "number" then
-                    MarkRemovedAuraInstance(instanceID, "event")
-                    Reminder.debug.removedIDs = Reminder.debug.removedIDs + 1
-                end
-            end
-        end
+    if not updateInfo or Secret(updateInfo) or type(updateInfo) ~= "table" then
+        -- The unit changed but the delta is unreadable. Keep the last confirmed
+        -- cache and let only independently reliable expiry evidence advance state.
+        Reminder.debug.lastUpdate = "UNREADABLE_PAYLOAD"
+        Reminder.CheckAll()
+        return
+    end
 
-        local added = updateInfo.addedAuras
-        if not Secret(added) and type(added) == "table" then
-            for _, aura in ipairs(added) do RememberAuraInstance(aura, "event-added") end
-        end
+    Reminder.debug.updateInfoEvents = Reminder.debug.updateInfoEvents + 1
+    local fullUpdate, fullUpdateOK = Field(updateInfo, "isFullUpdate")
+    if fullUpdateOK and fullUpdate == true then
+        Reminder.debug.fullUpdates = Reminder.debug.fullUpdates + 1
+        Reminder.debug.lastUpdate = "FULL_UPDATE"
+        -- Invalidate only this module's player cache. Do not diff against the old
+        -- snapshot: full update explicitly replaces the previous baseline.
+        Reminder.auraInstanceSpells = {}
+        Reminder.auraInstanceData = {}
+        Reminder.auraInstanceDetails = {}
+        Reminder.auraInstanceHistory = {}
+        Reminder.auraInstanceSources = {}
+        Reminder.snapshotPresent = {}
+        Reminder.snapshotValid = false
+        SnapshotAuraInstances("full-update")
+        Reminder.CheckAll()
+        return
+    end
 
-        local fullUpdate, fullUpdateOK = Field(updateInfo, "isFullUpdate")
-        if fullUpdateOK and fullUpdate == true then
-            -- A full update invalidates the old instance snapshot; rebuild it
-            -- from the current aura collection rather than diffing stale IDs.
-            Reminder.lastAuraInstanceSet = nil
+    -- Apply positive updates first and removals last. If a client reports
+    -- one instance in both updated and removed lists, removal must win; a
+    -- refresh that creates a new instance remains PRESENT through that new ID.
+    local added = Field(updateInfo, "addedAuras")
+    if type(added) == "table" and not Secret(added) then
+        for _, aura in ipairs(added) do
+            RememberAuraInstance(aura, "event-added")
+            Reminder.debug.addedIDs = Reminder.debug.addedIDs + 1
         end
     end
 
-    SnapshotAuraInstances()
+    local updated = Field(updateInfo, "updatedAuraInstanceIDs")
+    if type(updated) == "table" and not Secret(updated) then
+        for _, instanceID in ipairs(updated) do
+            if not Secret(instanceID) and type(instanceID) == "number" then
+                local aura = ReadAuraByInstanceID(instanceID)
+                if aura then
+                    RememberAuraInstance(aura, "event-updated")
+                else
+                    -- Blizzard may report an already-expired aura as updated
+                    -- immediately before its removal event. Do not delete it here.
+                    Reminder.debug.lastUpdate = "UPDATED_UNREADABLE:" .. tostring(instanceID)
+                end
+                Reminder.debug.updatedIDs = Reminder.debug.updatedIDs + 1
+            end
+        end
+    end
+
+    local removed = Field(updateInfo, "removedAuraInstanceIDs")
+    if type(removed) == "table" and not Secret(removed) then
+        for _, instanceID in ipairs(removed) do
+            if not Secret(instanceID) and type(instanceID) == "number" then
+                MarkRemovedAuraInstance(instanceID, "event")
+                Reminder.debug.removedIDs = Reminder.debug.removedIDs + 1
+            end
+        end
+    end
+
+    if not string.find(Reminder.debug.lastUpdate or "", "^UPDATED_UNREADABLE:") then
+        Reminder.debug.lastUpdate = "DELTA"
+    end
     Reminder.CheckAll()
 end
 
@@ -572,35 +628,33 @@ function Reminder.CheckEntry(entry)
         return
     end
 
-    -- An instance explicitly reported by UNIT_AURA.addedAuras is stronger
-    -- evidence than spell-ID/name lookups on this client. Those lookups can
-    -- report UNKNOWN/ABSENT while the event-added instance is still active.
-    -- Snapshot-only instances do not qualify; removed events and complete
-    -- snapshot diffs retire the active mapping.
-    local eventAddedInstanceID
-    local lastRemoval = Reminder.lastRemovalSequence[entry.key] or 0
+    -- An instance in the working cache is stronger evidence than spell-ID/name
+    -- lookups, which can report UNKNOWN/ABSENT while the aura remains active.
+    -- Initial enumeration supplies
+    -- its baseline, then UNIT_AURA deltas maintain it. Every still-mapped
+    -- instance counts, regardless of whether it came from a snapshot or event.
+    local cachedInstanceID
     for instanceID, instanceKey in pairs(Reminder.auraInstanceSpells) do
-        if instanceKey == entry.key
-            and Reminder.auraInstanceSources[instanceID] == "event-added"
-            and (Reminder.auraInstanceAddedSequence[instanceID] or 0) > lastRemoval then
-            eventAddedInstanceID = instanceID
+        if instanceKey == entry.key then
+            cachedInstanceID = instanceID
             break
         end
     end
 
     local state, aura
-    if eventAddedInstanceID then
+    if cachedInstanceID then
         state = "PRESENT"
-        aura = ReadAuraByInstanceID(eventAddedInstanceID)
+        aura = Reminder.auraInstanceData[cachedInstanceID]
+            or ReadAuraByInstanceID(cachedInstanceID)
     else
         state, aura = ReadAura(entry)
     end
 
     -- A confirmed removal is a latch: only a later explicit UNIT_AURA
     -- addedAuras event clears it. Direct spell/name lookup is not equivalent.
-    if Reminder.confirmedRemovedKeys[entry.key] and not eventAddedInstanceID then
+    if Reminder.confirmedRemovedKeys[entry.key] and not cachedInstanceID then
         state, aura = "MISSING", nil
-    elseif eventAddedInstanceID then
+    elseif cachedInstanceID then
         state = "PRESENT"
     elseif Reminder.snapshotValid and Reminder.instanceTrackedKeys[entry.key] then
         if state == "MISSING" then
@@ -672,7 +726,10 @@ local function OnEvent(_, event, ...)
             for i = 2, #args do
                 local candidate = args[i]
                 if not Secret(candidate) and type(candidate) == "table"
-                    and (candidate.addedAuras ~= nil or candidate.removedAuraInstanceIDs ~= nil or candidate.isFullUpdate ~= nil) then
+                    and (candidate.addedAuras ~= nil
+                        or candidate.updatedAuraInstanceIDs ~= nil
+                        or candidate.removedAuraInstanceIDs ~= nil
+                        or candidate.isFullUpdate ~= nil) then
                     updateInfo = candidate
                     break
                 end
@@ -705,7 +762,37 @@ local function OnEvent(_, event, ...)
             Reminder.states[entry.key] = "UNKNOWN"
             Reminder.expirations[entry.key] = nil
         end
+        Reminder.auraInstanceSpells = {}
+        Reminder.auraInstanceData = {}
+        Reminder.auraInstanceDetails = {}
+        Reminder.auraInstanceHistory = {}
+        Reminder.auraInstanceSources = {}
+        Reminder.snapshotPresent = {}
+        Reminder.snapshotValid = false
         RefreshAlert()
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        -- Combat restrictions can lift without a UNIT_AURA delta. Throw away
+        -- the combat-era cache and rebuild once the client is unrestricted.
+        Reminder.auraInstanceSpells = {}
+        Reminder.auraInstanceData = {}
+        Reminder.auraInstanceDetails = {}
+        Reminder.auraInstanceHistory = {}
+        Reminder.auraInstanceSources = {}
+        Reminder.snapshotPresent = {}
+        Reminder.snapshotValid = false
+        SnapshotAuraInstances("full-update")
+        Reminder.CheckAll()
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        -- A new world/instance is a new player-aura baseline.
+        Reminder.auraInstanceSpells = {}
+        Reminder.auraInstanceData = {}
+        Reminder.auraInstanceDetails = {}
+        Reminder.auraInstanceHistory = {}
+        Reminder.auraInstanceSources = {}
+        Reminder.snapshotPresent = {}
+        Reminder.snapshotValid = false
+        SnapshotAuraInstances("full-update")
+        Reminder.CheckAll()
     else
         Reminder.CheckAll()
     end
@@ -775,6 +862,11 @@ local function Command(message)
     elseif cmd == "clear" then
         TUI_BuffReminderDB = {}
         Reminder.states, Reminder.expirations, Reminder.tokens = {}, {}, {}
+        Reminder.auraInstanceSpells, Reminder.auraInstanceData = {}, {}
+        Reminder.auraInstanceDetails, Reminder.auraInstanceHistory = {}, {}
+        Reminder.auraInstanceSources = {}
+        Reminder.instanceTrackedKeys, Reminder.confirmedRemovedKeys = {}, {}
+        Reminder.snapshotPresent, Reminder.snapshotValid = {}, false
         RefreshAlert()
         Print("监控列表已清空")
     elseif cmd == "check" then
@@ -789,7 +881,9 @@ local function Command(message)
         Print("Aura Instance 查询 API: " .. (lookupAPI and "可用" or "不可用"))
         Print("已映射实例: " .. tostring(mapped))
         Print(string.format("UNIT_AURA: %d (player:%d, updateInfo:%d)", Reminder.debug.auraEvents, Reminder.debug.playerAuraEvents, Reminder.debug.updateInfoEvents))
-        Print(string.format("移除ID:%d | 快照成功:%d 失败:%d | 快照发现移除:%d", Reminder.debug.removedIDs, Reminder.debug.snapshotOK, Reminder.debug.snapshotFailed, Reminder.debug.snapshotRemoved))
+        Print(string.format("增量 Added:%d Updated:%d Removed:%d Full:%d", Reminder.debug.addedIDs, Reminder.debug.updatedIDs, Reminder.debug.removedIDs, Reminder.debug.fullUpdates))
+        Print(string.format("AuraCache: valid:%s instances:%d snapshotOK:%d failed:%d", tostring(Reminder.snapshotValid), mapped, Reminder.debug.snapshotOK, Reminder.debug.snapshotFailed))
+        Print("最近更新: " .. tostring(Reminder.debug.lastUpdate))
         Print("最近移除: " .. tostring(Reminder.debug.lastRemoval))
         Print("现代名称扫描: " .. tostring(Reminder.debug.lastModernScan or "尚未执行"))
         local alert = Reminder.alert
@@ -899,7 +993,7 @@ local function Initialize()
     -- Construct the alert during initialization, before combat can begin.
     -- It remains shown with alpha 0 while idle.
     AlertFrame()
-    SnapshotAuraInstances()
+    SnapshotAuraInstances("snapshot")
     Reminder.CheckAll()
 end
 
