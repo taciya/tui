@@ -45,4 +45,14 @@ function Center:Toggle()
     self:Create(); if self.frame:IsShown() then self.frame:Hide() else self.frame:Show() end
 end
 SLASH_TUIDEBUG1="/tuidebug"
-SlashCmdList.TUIDEBUG=function()Center:Toggle()end
+SlashCmdList.TUIDEBUG=function(message)
+    local action, state, moduleName=string.match(message or "","^(%S*)%s*(%S*)%s*(.-)%s*$")
+    action=string.lower(action or "")
+    state=string.lower(state or "")
+    if action=="log" and (state=="on" or state=="off") then
+        TUI.Debug:SetEnabled(state=="on",moduleName~="" and moduleName or nil)
+        TUI:Print("调试日志 "..(state=="on" and "已开启" or "已关闭")..(moduleName~="" and ("： "..moduleName) or "（全局）"))
+    else
+        Center:Toggle()
+    end
+end
