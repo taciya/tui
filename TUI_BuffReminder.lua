@@ -118,14 +118,13 @@ local Reminder = {
     -- Private, player-only AuraCache. It is intentionally scoped to this file;
     -- no global hooks, frames, or event handlers are installed for other modules.
     auraInstanceSpells = {}, auraInstanceData = {}, auraInstanceDetails = {},
-    auraInstanceHistory = {}, auraInstanceSources = {}, auraInstanceAddedSequence = {},
-    eventSequence = 0, lastRemovalSequence = {}, lastAuraInstanceSet = nil,
+    auraInstanceHistory = {}, auraInstanceSources = {},
     instanceTrackedKeys = {}, confirmedRemovedKeys = {}, snapshotPresent = {},
     snapshotValid = false,
     debug = {
         auraEvents = 0, playerAuraEvents = 0, updateInfoEvents = 0,
         addedIDs = 0, updatedIDs = 0, removedIDs = 0, fullUpdates = 0,
-        snapshotOK = 0, snapshotFailed = 0, snapshotRemoved = 0,
+        snapshotOK = 0, snapshotFailed = 0,
         lastRemoval = "none", lastUpdate = "none",
         alertRefreshes = 0, alertMissingCount = 0, alertLastText = ""
     }
@@ -313,8 +312,6 @@ local function RememberAuraInstance(aura, source)
         -- Added/updated events are positive evidence. A successful complete
         -- snapshot is also positive evidence after a full-update invalidation.
         if explicitAddedEvent or source == "event-updated" or source == "snapshot-confirmed" then
-            Reminder.eventSequence = Reminder.eventSequence + 1
-            Reminder.auraInstanceAddedSequence[instanceID] = Reminder.eventSequence
             Reminder.confirmedRemovedKeys[entry.key] = nil
         end
     end
@@ -340,14 +337,11 @@ local function MarkRemovedAuraInstance(instanceID, source)
         return
     end
     local detail = Reminder.auraInstanceDetails[instanceID] or {}
-    Reminder.eventSequence = Reminder.eventSequence + 1
-    Reminder.lastRemovalSequence[key] = Reminder.eventSequence
     Reminder.debug.lastRemoval = string.format("%s -> %s [spellID:%s name:%s] (%s)", tostring(instanceID), tostring(key), tostring(detail.spellID or "-"), tostring(detail.name or "-"), tostring(source or "unknown"))
     Reminder.auraInstanceSpells[instanceID] = nil
     Reminder.auraInstanceData[instanceID] = nil
     Reminder.auraInstanceHistory[instanceID] = nil
     Reminder.auraInstanceSources[instanceID] = nil
-    Reminder.auraInstanceAddedSequence[instanceID] = nil
     Reminder.auraInstanceDetails[instanceID] = nil
     if not HasOtherAuraInstance(key, instanceID) then
         Reminder.states[key] = "MISSING"
@@ -405,14 +399,12 @@ local function SnapshotAuraInstances(source)
             Reminder.auraInstanceSpells[instanceID] = nil
             Reminder.auraInstanceData[instanceID] = nil
             Reminder.auraInstanceSources[instanceID] = nil
-            Reminder.auraInstanceAddedSequence[instanceID] = nil
             Reminder.auraInstanceDetails[instanceID] = nil
         end
     end
 
     Reminder.snapshotPresent = present
     Reminder.snapshotValid = true
-    Reminder.lastAuraInstanceSet = current
     Reminder.debug.snapshotOK = Reminder.debug.snapshotOK + 1
     return true
 end
@@ -438,8 +430,6 @@ local function HandleAuraUpdate(updateInfo)
         Reminder.auraInstanceDetails = {}
         Reminder.auraInstanceHistory = {}
         Reminder.auraInstanceSources = {}
-        Reminder.auraInstanceAddedSequence = {}
-        Reminder.lastAuraInstanceSet = nil
         Reminder.snapshotPresent = {}
         Reminder.snapshotValid = false
         SnapshotAuraInstances("full-update")
@@ -777,8 +767,6 @@ local function OnEvent(_, event, ...)
         Reminder.auraInstanceDetails = {}
         Reminder.auraInstanceHistory = {}
         Reminder.auraInstanceSources = {}
-        Reminder.auraInstanceAddedSequence = {}
-        Reminder.lastAuraInstanceSet = nil
         Reminder.snapshotPresent = {}
         Reminder.snapshotValid = false
         RefreshAlert()
@@ -790,8 +778,6 @@ local function OnEvent(_, event, ...)
         Reminder.auraInstanceDetails = {}
         Reminder.auraInstanceHistory = {}
         Reminder.auraInstanceSources = {}
-        Reminder.auraInstanceAddedSequence = {}
-        Reminder.lastAuraInstanceSet = nil
         Reminder.snapshotPresent = {}
         Reminder.snapshotValid = false
         SnapshotAuraInstances("full-update")
@@ -882,8 +868,7 @@ local function Command(message)
         Reminder.auraInstanceDetails, Reminder.auraInstanceHistory = {}, {}
         Reminder.auraInstanceSources, Reminder.auraInstanceAddedSequence = {}, {}
         Reminder.instanceTrackedKeys, Reminder.confirmedRemovedKeys = {}, {}
-        Reminder.lastRemovalSequence, Reminder.snapshotPresent = {}, {}
-        Reminder.lastAuraInstanceSet, Reminder.snapshotValid = nil, false
+        Reminder.snapshotPresent, Reminder.snapshotValid = {}, false
         RefreshAlert()
         Print("监控列表已清空")
     elseif cmd == "check" then
