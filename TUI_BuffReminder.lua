@@ -130,6 +130,12 @@ local Reminder = {
     }
 }
 
+local function DebugLog(level, message, data)
+    if TUI and TUI.Debug and type(TUI.Debug.Log) == "function" then
+        TUI.Debug:Log("BuffReminder", level, message, data)
+    end
+end
+
 local function ReadByID(id)
     if not id or not C_UnitAuras then return nil, false, false end
     local api, useUnitAPI
@@ -338,6 +344,7 @@ local function MarkRemovedAuraInstance(instanceID, source)
     end
     local detail = Reminder.auraInstanceDetails[instanceID] or {}
     Reminder.debug.lastRemoval = string.format("%s -> %s [spellID:%s name:%s] (%s)", tostring(instanceID), tostring(key), tostring(detail.spellID or "-"), tostring(detail.name or "-"), tostring(source or "unknown"))
+    DebugLog("EVENT", "Aura instance removed", { instanceID = instanceID, key = key, spellID = detail.spellID, name = detail.name, source = source or "unknown" })
     Reminder.auraInstanceSpells[instanceID] = nil
     Reminder.auraInstanceData[instanceID] = nil
     Reminder.auraInstanceHistory[instanceID] = nil
@@ -360,6 +367,7 @@ local function SnapshotAuraInstances(source)
     if not ok or Secret(ids) or type(ids) ~= "table" then
         Reminder.snapshotValid = false
         Reminder.debug.snapshotFailed = Reminder.debug.snapshotFailed + 1
+        DebugLog("WARN", "Aura snapshot failed", { source = source or "unknown", reason = "instance ID list unavailable" })
         return false
     end
 
@@ -368,6 +376,7 @@ local function SnapshotAuraInstances(source)
         if Secret(instanceID) or type(instanceID) ~= "number" then
             Reminder.snapshotValid = false
             Reminder.debug.snapshotFailed = Reminder.debug.snapshotFailed + 1
+            DebugLog("WARN", "Aura snapshot incomplete", { source = source or "unknown", reason = "invalid instance ID" })
             return false
         end
         local aura = ReadAuraByInstanceID(instanceID)
@@ -376,6 +385,7 @@ local function SnapshotAuraInstances(source)
         if not aura then
             Reminder.snapshotValid = false
             Reminder.debug.snapshotFailed = Reminder.debug.snapshotFailed + 1
+            DebugLog("WARN", "Aura snapshot incomplete", { source = source or "unknown", instanceID = instanceID, reason = "instance lookup unavailable" })
             return false
         end
         current[instanceID] = true
@@ -406,6 +416,7 @@ local function SnapshotAuraInstances(source)
     Reminder.snapshotPresent = present
     Reminder.snapshotValid = true
     Reminder.debug.snapshotOK = Reminder.debug.snapshotOK + 1
+    DebugLog("INFO", "Aura snapshot completed", { source = source or "unknown", instances = #snapshotAuras, tracked = #Entries() })
     return true
 end
 
@@ -414,6 +425,7 @@ local function HandleAuraUpdate(updateInfo)
         -- The unit changed but the delta is unreadable. Keep the last confirmed
         -- cache and let only independently reliable expiry evidence advance state.
         Reminder.debug.lastUpdate = "UNREADABLE_PAYLOAD"
+        DebugLog("WARN", "UNIT_AURA payload unreadable")
         Reminder.CheckAll()
         return
     end
@@ -423,6 +435,7 @@ local function HandleAuraUpdate(updateInfo)
     if fullUpdateOK and fullUpdate == true then
         Reminder.debug.fullUpdates = Reminder.debug.fullUpdates + 1
         Reminder.debug.lastUpdate = "FULL_UPDATE"
+        DebugLog("EVENT", "UNIT_AURA full update")
         -- Invalidate only this module's player cache. Do not diff against the old
         -- snapshot: full update explicitly replaces the previous baseline.
         Reminder.auraInstanceSpells = {}
@@ -440,11 +453,13 @@ local function HandleAuraUpdate(updateInfo)
     -- Apply positive updates first and removals last. If a client reports
     -- one instance in both updated and removed lists, removal must win; a
     -- refresh that creates a new instance remains PRESENT through that new ID.
+    local eventAdded, eventUpdated, eventRemoved = 0, 0, 0
     local added = Field(updateInfo, "addedAuras")
     if type(added) == "table" and not Secret(added) then
         for _, aura in ipairs(added) do
             RememberAuraInstance(aura, "event-added")
             Reminder.debug.addedIDs = Reminder.debug.addedIDs + 1
+            eventAdded = eventAdded + 1
         end
     end
 
@@ -461,6 +476,7 @@ local function HandleAuraUpdate(updateInfo)
                     Reminder.debug.lastUpdate = "UPDATED_UNREADABLE:" .. tostring(instanceID)
                 end
                 Reminder.debug.updatedIDs = Reminder.debug.updatedIDs + 1
+                eventUpdated = eventUpdated + 1
             end
         end
     end
@@ -471,6 +487,7 @@ local function HandleAuraUpdate(updateInfo)
             if not Secret(instanceID) and type(instanceID) == "number" then
                 MarkRemovedAuraInstance(instanceID, "event")
                 Reminder.debug.removedIDs = Reminder.debug.removedIDs + 1
+                eventRemoved = eventRemoved + 1
             end
         end
     end
@@ -478,6 +495,11 @@ local function HandleAuraUpdate(updateInfo)
     if not string.find(Reminder.debug.lastUpdate or "", "^UPDATED_UNREADABLE:") then
         Reminder.debug.lastUpdate = "DELTA"
     end
+    DebugLog("EVENT", "UNIT_AURA delta applied", {
+        added = eventAdded,
+        updated = eventUpdated,
+        removed = eventRemoved
+    })
     Reminder.CheckAll()
 end
 
@@ -679,6 +701,15 @@ function Reminder.CheckEntry(entry)
         if previous == "PRESENT" and expiry and GetTime() >= expiry + 0.8 then
             Reminder.states[entry.key] = "MISSING"
         end
+    end
+    local current = Reminder.states[entry.key]
+    if current ~= previous and (current == "PRESENT" or current == "MISSING" or current == "INAPPLICABLE") then
+        DebugLog("INFO", "Reminder state changed", {
+            name = entry.name or tostring(entry.spellID),
+            spellID = entry.spellID,
+            previous = previous or "UNSET",
+            current = current
+        })
     end
     RefreshAlert()
 end
@@ -978,6 +1009,45 @@ end
 
 local function Initialize()
     TUI_BuffReminderDB = TUI_BuffReminderDB or {}
+    if TUI and TUI.Debug and type(TUI.Debug.RegisterModule) == "function" then
+        TUI.Debug:RegisterModule("BuffReminder", {
+            GetStatus = function()
+                local mapped, missing, present, unknown, inapplicable = 0, 0, 0, 0, 0
+                for _ in pairs(Reminder.auraInstanceSpells) do mapped = mapped + 1 end
+                local stateParts = {}
+                for _, entry in ipairs(Entries()) do
+                    local state = Reminder.states[entry.key] or "UNKNOWN"
+                    if state == "MISSING" then missing = missing + 1
+                    elseif state == "PRESENT" then present = present + 1
+                    elseif state == "INAPPLICABLE" then inapplicable = inapplicable + 1
+                    else unknown = unknown + 1 end
+                    stateParts[#stateParts + 1] = (entry.name or tostring(entry.spellID)) .. "=" .. state
+                end
+                local alert = Reminder.alert
+                local inCombat = type(InCombatLockdown) == "function" and InCombatLockdown() or false
+                return {
+                    initialized = true,
+                    monitored = #Entries(), present = present, missing = missing,
+                    unknown = unknown, inapplicable = inapplicable,
+                    states = table.concat(stateParts, "; "),
+                    auraCacheValid = tostring(Reminder.snapshotValid), mappedInstances = mapped,
+                    snapshotOK = Reminder.debug.snapshotOK, snapshotFailed = Reminder.debug.snapshotFailed,
+                    auraEvents = Reminder.debug.auraEvents, playerAuraEvents = Reminder.debug.playerAuraEvents,
+                    updateInfoEvents = Reminder.debug.updateInfoEvents,
+                    addedIDs = Reminder.debug.addedIDs, updatedIDs = Reminder.debug.updatedIDs,
+                    removedIDs = Reminder.debug.removedIDs, fullUpdates = Reminder.debug.fullUpdates,
+                    lastUpdate = Reminder.debug.lastUpdate, lastRemoval = Reminder.debug.lastRemoval,
+                    lastModernScan = Reminder.debug.lastModernScan or "not run",
+                    alertShown = tostring(alert and alert:IsShown() or false),
+                    alertVisible = tostring(alert and alert:IsVisible() or false),
+                    alertAlpha = alert and tostring(alert:GetAlpha()) or "none",
+                    alertMissingCount = Reminder.debug.alertMissingCount,
+                    alertText = Reminder.debug.alertLastText, inCombat = tostring(inCombat)
+                }
+            end
+        })
+    end
+    DebugLog("INFO", "BuffReminder initialized", { monitored = #Entries() })
     local frame = CreateFrame("Frame")
     frame:RegisterEvent("UNIT_AURA")
     frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
