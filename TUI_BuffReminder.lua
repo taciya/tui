@@ -355,6 +355,10 @@ local function MarkRemovedAuraInstance(instanceID, source)
         Reminder.states[key] = "MISSING"
         Reminder.confirmedRemovedKeys[key] = true
         Reminder.expirations[key] = nil
+        -- The snapshot is a point-in-time baseline. Once the last tracked
+        -- instance is removed, do not keep reporting that old snapshot as
+        -- PRESENT while waiting for the next complete reconciliation.
+        Reminder.snapshotPresent[key] = nil
         if previous ~= "MISSING" then
             DebugLog("INFO", "Reminder state changed", {
                 name = detail.name or tostring(key),
@@ -403,7 +407,10 @@ local function SnapshotAuraInstances(source)
 
     -- Commit only after the entire enumeration has been read successfully.
     for _, aura in ipairs(snapshotAuras) do
-        local sourceTag = source == "full-update" and "snapshot-confirmed" or "snapshot"
+        -- Any successful complete snapshot is fresh positive evidence. This
+        -- also lets combat reconciliation recover when this client omits an
+        -- addedAuras delta even though the aura is visibly active.
+        local sourceTag = "snapshot-confirmed"
         RememberAuraInstance(aura, sourceTag)
         local instanceID = Field(aura, "auraInstanceID")
         local key = instanceID and Reminder.auraInstanceSpells[instanceID]
@@ -509,6 +516,16 @@ local function HandleAuraUpdate(updateInfo)
         updated = eventUpdated,
         removed = eventRemoved
     })
+
+    -- Some supported client builds omit addedAuras for an aura that becomes
+    -- visible during combat. If a prior removal latch is active, reconcile
+    -- against the complete player aura-instance list before keeping MISSING.
+    -- A complete snapshot that maps the monitored spell is positive evidence
+    -- and clears that latch; an incomplete/empty snapshot never does.
+    if type(InCombatLockdown) == "function" and InCombatLockdown()
+        and next(Reminder.confirmedRemovedKeys) ~= nil then
+        SnapshotAuraInstances("combat-reconcile")
+    end
     Reminder.CheckAll()
 end
 
