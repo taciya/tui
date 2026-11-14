@@ -171,6 +171,7 @@ local function ReadAura(entry)
 
     local modern, modernOK, modernUnknown, modernComplete = ReadByNameModern(entry.name)
     supported, unknown = supported or modernOK, unknown or modernUnknown
+    Reminder.debug.lastModernScan = string.format("supported:%s unknown:%s complete:%s", tostring(modernOK), tostring(modernUnknown), tostring(modernComplete))
     if modern then return "PRESENT", modern end
 
     -- A complete modern helpful-aura scan is authoritative for absence.
@@ -636,6 +637,7 @@ local function Command(message)
         Print(string.format("UNIT_AURA: %d (player:%d, updateInfo:%d)", Reminder.debug.auraEvents, Reminder.debug.playerAuraEvents, Reminder.debug.updateInfoEvents))
         Print(string.format("移除ID:%d | 快照成功:%d 失败:%d | 快照发现移除:%d", Reminder.debug.removedIDs, Reminder.debug.snapshotOK, Reminder.debug.snapshotFailed, Reminder.debug.snapshotRemoved))
         Print("最近移除: " .. tostring(Reminder.debug.lastRemoval))
+        Print("现代名称扫描: " .. tostring(Reminder.debug.lastModernScan or "尚未执行"))
         local alert = Reminder.alert
         Print(string.format("提醒诊断: refresh:%d missing:%d shown:%s visible:%s alpha:%s effective:%s strata:%s text:%s", Reminder.debug.alertRefreshes, Reminder.debug.alertMissingCount, tostring(alert and alert:IsShown() or false), tostring(alert and alert:IsVisible() or false), tostring(alert and alert:GetAlpha() or "-"), tostring(alert and alert:GetEffectiveAlpha() or "-"), tostring(alert and alert:GetFrameStrata() or "-"), tostring(Reminder.debug.alertLastText)))
         local activeIDs = {}
@@ -671,12 +673,15 @@ local function Command(message)
             if entry.name and C_UnitAuras and type(C_UnitAuras.GetAuraDataByIndex) == "function" then
                 local found = false
                 local count, matches = 0, 0
+                local stopReason = "LIMIT"
                 for index = 1, 255 do
                     local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", index, "HELPFUL")
-                    if not ok or Secret(aura) then break end
-                    if aura == nil then break end
+                    if not ok then stopReason = "API_ERROR@" .. index; break end
+                    if Secret(aura) then stopReason = "SECRET_AURA@" .. index; break end
+                    if aura == nil then stopReason = "END@" .. index; break end
                     count = count + 1
-                    local auraName = Field(aura, "name")
+                    local auraName, nameOK = Field(aura, "name")
+                    if not nameOK then stopReason = "SECRET_NAME@" .. index; break end
                     if auraName == entry.name then
                         matches = matches + 1
                         found = true
@@ -686,7 +691,9 @@ local function Command(message)
                         Print(string.format("  Index匹配:%d name:%s id:%s instance:%s", index, tostring(auraName), tostring(auraID or "?"), tostring(instanceID or "?")))
                     end
                 end
-                Print(string.format("  Index扫描: %d项 | 匹配:%d | %s", count, matches, found and "PRESENT" or "ABSENT/UNKNOWN"))
+                Print(string.format("  Index扫描: %d项 | 匹配:%d | stop:%s | %s", count, matches, stopReason, found and "PRESENT" or (stopReason:match("^END") and "ABSENT" or "UNKNOWN")))
+            else
+                Print("  Index扫描: API不可用")
             end
         end
     elseif cmd == "alert" then
