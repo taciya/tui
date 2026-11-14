@@ -88,7 +88,7 @@ local function KeyFor(id, name)
     return id and tostring(id) or ("name:" .. string.lower(name))
 end
 
-local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {}, auraInstanceSpells = {}, auraInstanceDetails = {}, lastAuraInstanceSet = nil, instanceTrackedKeys = {}, snapshotPresent = {}, snapshotValid = false, debug = { auraEvents = 0, playerAuraEvents = 0, updateInfoEvents = 0, removedIDs = 0, snapshotOK = 0, snapshotFailed = 0, snapshotRemoved = 0, lastRemoval = "none", alertRefreshes = 0, alertMissingCount = 0, alertLastText = "" } }
+local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {}, auraInstanceSpells = {}, auraInstanceDetails = {}, lastAuraInstanceSet = nil, instanceTrackedKeys = {}, confirmedRemovedKeys = {}, snapshotPresent = {}, snapshotValid = false, debug = { auraEvents = 0, playerAuraEvents = 0, updateInfoEvents = 0, removedIDs = 0, snapshotOK = 0, snapshotFailed = 0, snapshotRemoved = 0, lastRemoval = "none", alertRefreshes = 0, alertMissingCount = 0, alertLastText = "" } }
 
 local function ReadByID(id)
     if not id or not C_UnitAuras then return nil, false, false end
@@ -209,7 +209,7 @@ local function ReadAuraByInstanceID(instanceID)
     return aura
 end
 
-local function RememberAuraInstance(aura)
+local function RememberAuraInstance(aura, source)
     if not aura or Secret(aura) then return end
     local instanceID, instanceOK = Field(aura, "auraInstanceID")
     if not instanceOK or type(instanceID) ~= "number" then return end
@@ -227,6 +227,12 @@ local function RememberAuraInstance(aura)
             entrySpellID = entry.spellID,
         }
         Reminder.instanceTrackedKeys[entry.key] = true
+        -- Only an explicit UNIT_AURA addedAuras record or a direct positive
+        -- aura query can clear a confirmed-removal latch. Snapshot enumeration
+        -- alone is not sufficient on this client because it can expose stale IDs.
+        if source == "event-added" then
+            Reminder.confirmedRemovedKeys[entry.key] = nil
+        end
     end
 end
 
@@ -251,6 +257,7 @@ local function MarkRemovedAuraInstance(instanceID, source)
     Reminder.auraInstanceDetails[instanceID] = nil
     if not HasOtherAuraInstance(key, instanceID) then
         Reminder.states[key] = "MISSING"
+        Reminder.confirmedRemovedKeys[key] = true
         Reminder.expirations[key] = nil
     end
 end
@@ -305,7 +312,7 @@ local function HandleAuraUpdate(updateInfo)
     if updateInfo and not Secret(updateInfo) and type(updateInfo) == "table" then
         local added = updateInfo.addedAuras
         if not Secret(added) and type(added) == "table" then
-            for _, aura in ipairs(added) do RememberAuraInstance(aura) end
+            for _, aura in ipairs(added) do RememberAuraInstance(aura, "event-added") end
         end
 
         local removed = updateInfo.removedAuraInstanceIDs
@@ -456,18 +463,23 @@ function Reminder.CheckEntry(entry)
     -- Once this configured aura has been observed by instance ID, a successful
     -- complete snapshot is more reliable than spell/name lookup in combat.
     if Reminder.snapshotValid and Reminder.instanceTrackedKeys[entry.key] then
-        -- A complete independent modern scan proving absence wins over a
-        -- contradictory/stale instance snapshot. Otherwise the snapshot can
-        -- resolve UNKNOWN states, but must not override a confirmed MISSING.
-        if state == "MISSING" then
+        -- Once UNIT_AURA explicitly reports removal of the last tracked
+        -- instance, a later snapshot-only ID must not resurrect the buff.
+        -- On this client the instance list can contain stale/recycled entries.
+        if Reminder.confirmedRemovedKeys[entry.key] then
+            state, aura = "MISSING", nil
+        elseif state == "MISSING" then
             aura = nil
         elseif not state or state == "UNKNOWN" then
+            -- Snapshot presence may bootstrap an unknown entry only before
+            -- a confirmed removal has occurred in this session.
             state = Reminder.snapshotPresent[entry.key] and "PRESENT" or "MISSING"
             if state == "MISSING" then aura = nil end
         end
     end
     local previous = Reminder.states[entry.key]
     if state == "PRESENT" then
+        Reminder.confirmedRemovedKeys[entry.key] = nil
         Reminder.states[entry.key] = state
         LearnAura(entry, aura)
     elseif state == "MISSING" then
