@@ -463,15 +463,23 @@ local function AlertFrame()
     fs:SetAlpha(1)
     f.text = fs
 
-    -- A gentle pulse draws attention without a loud sound or rapid flashing.
+    -- Keep the frame created and shown for the entire session. In combat,
+    -- visibility changes are reduced to alpha changes only; this avoids any
+    -- dependence on Show()/Hide() at the moment an aura disappears.
+    f.alertActive = false
     f.pulseElapsed = 0
+    f:EnableMouse(false)
+    f:SetAlpha(0)
     f:SetScript("OnUpdate", function(self, elapsed)
-        if not self:IsShown() then return end
+        if not self.alertActive then
+            if self:GetAlpha() ~= 0 then self:SetAlpha(0) end
+            return
+        end
         self.pulseElapsed = self.pulseElapsed + (elapsed or 0)
         local alpha = 0.88 + 0.12 * math.sin(self.pulseElapsed * 3.5)
         self:SetAlpha(alpha)
     end)
-    f:Hide()
+    f:Show()
     Reminder.alert = f
     return f
 end
@@ -488,12 +496,16 @@ local function RefreshAlert()
     Reminder.debug.alertMissingCount = #missing
     if #missing == 0 then
         Reminder.debug.alertLastText = ""
-        f:Hide()
+        f.alertActive = false
+        f.text:SetText("")
+        f:SetAlpha(0)
         return
     end
     Reminder.debug.alertLastText = "缺少效果：" .. table.concat(missing, "、")
     f.text:SetText("|cffff3333" .. Reminder.debug.alertLastText .. "|r")
-    f:Show()
+    f.alertActive = true
+    f.pulseElapsed = 0
+    f:SetAlpha(1)
 end
 
 local function ScheduleExpiry(entry, expiration)
@@ -833,6 +845,9 @@ local function Initialize()
     frame:SetScript("OnEvent", OnEvent)
     SlashCmdList["TUIBUFF"] = Command
     SLASH_TUIBUFF1, SLASH_TUIBUFF2 = "/tuibuff", "/tbuff"
+    -- Construct the alert during initialization, before combat can begin.
+    -- It remains shown with alpha 0 while idle.
+    AlertFrame()
     SnapshotAuraInstances()
     Reminder.CheckAll()
 end
