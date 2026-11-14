@@ -88,7 +88,7 @@ local function KeyFor(id, name)
     return id and tostring(id) or ("name:" .. string.lower(name))
 end
 
-local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {}, auraInstanceSpells = {}, lastAuraInstanceSet = nil }
+local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {}, auraInstanceSpells = {}, lastAuraInstanceSet = nil, debug = { auraEvents = 0, playerAuraEvents = 0, updateInfoEvents = 0, removedIDs = 0, snapshotOK = 0, snapshotFailed = 0, snapshotRemoved = 0 } }
 
 local function ReadByID(id)
     if not id or not C_UnitAuras then return nil, false, false end
@@ -237,11 +237,11 @@ local function SnapshotAuraInstances()
         return false
     end
     local ok, ids = pcall(C_UnitAuras.GetUnitAuraInstanceIDs, "player", "HELPFUL")
-    if not ok or Secret(ids) or type(ids) ~= "table" then return false end
+    if not ok or Secret(ids) or type(ids) ~= "table" then Reminder.debug.snapshotFailed = Reminder.debug.snapshotFailed + 1; return false end
 
     local current = {}
     for _, instanceID in ipairs(ids) do
-        if Secret(instanceID) or type(instanceID) ~= "number" then return false end
+        if Secret(instanceID) or type(instanceID) ~= "number" then Reminder.debug.snapshotFailed = Reminder.debug.snapshotFailed + 1; return false end
         current[instanceID] = true
         RememberAuraInstance(ReadAuraByInstanceID(instanceID))
     end
@@ -252,14 +252,17 @@ local function SnapshotAuraInstances()
         for instanceID in pairs(Reminder.lastAuraInstanceSet) do
             if not current[instanceID] then
                 MarkRemovedAuraInstance(instanceID)
+                Reminder.debug.snapshotRemoved = Reminder.debug.snapshotRemoved + 1
             end
         end
     end
     Reminder.lastAuraInstanceSet = current
+    Reminder.debug.snapshotOK = Reminder.debug.snapshotOK + 1
     return true
 end
 
 local function HandleAuraUpdate(updateInfo)
+    if updateInfo and not Secret(updateInfo) and type(updateInfo) == "table" then Reminder.debug.updateInfoEvents = Reminder.debug.updateInfoEvents + 1 end
     if updateInfo and not Secret(updateInfo) and type(updateInfo) == "table" then
         local added = updateInfo.addedAuras
         if not Secret(added) and type(added) == "table" then
@@ -271,6 +274,7 @@ local function HandleAuraUpdate(updateInfo)
             for _, instanceID in ipairs(removed) do
                 if not Secret(instanceID) and type(instanceID) == "number" then
                     MarkRemovedAuraInstance(instanceID)
+                    Reminder.debug.removedIDs = Reminder.debug.removedIDs + 1
                 end
             end
         end
@@ -433,8 +437,23 @@ end
 
 local function OnEvent(_, event, ...)
     if event == "UNIT_AURA" then
-        local unit, updateInfo = ...
-        if unit == "player" then HandleAuraUpdate(updateInfo) end
+        Reminder.debug.auraEvents = Reminder.debug.auraEvents + 1
+        local args = { ... }
+        local unit = args[1]
+        if unit == "player" then
+            Reminder.debug.playerAuraEvents = Reminder.debug.playerAuraEvents + 1
+            -- Some client builds differ in the UNIT_AURA payload; locate the update table instead of assuming arg #2.
+            local updateInfo
+            for i = 2, #args do
+                local candidate = args[i]
+                if not Secret(candidate) and type(candidate) == "table"
+                    and (candidate.addedAuras ~= nil or candidate.removedAuraInstanceIDs ~= nil or candidate.isFullUpdate ~= nil) then
+                    updateInfo = candidate
+                    break
+                end
+            end
+            HandleAuraUpdate(updateInfo)
+        end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         local args = { ... }
         if args[1] == "player" then
@@ -535,6 +554,8 @@ local function Command(message)
         Print("Aura Instance API: " .. (auraAPI and "可用" or "不可用"))
         Print("Aura Instance 查询 API: " .. (lookupAPI and "可用" or "不可用"))
         Print("已映射实例: " .. tostring(mapped))
+        Print(string.format("UNIT_AURA: %d (player:%d, updateInfo:%d)", Reminder.debug.auraEvents, Reminder.debug.playerAuraEvents, Reminder.debug.updateInfoEvents))
+        Print(string.format("移除ID:%d | 快照成功:%d 失败:%d | 快照发现移除:%d", Reminder.debug.removedIDs, Reminder.debug.snapshotOK, Reminder.debug.snapshotFailed, Reminder.debug.snapshotRemoved))
         for _, entry in ipairs(Entries()) do
             Print((entry.name or tostring(entry.spellID)) .. " | " .. tostring(Reminder.states[entry.key] or "UNKNOWN"))
         end
