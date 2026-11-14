@@ -647,8 +647,14 @@ local function OnEvent(_, event, ...)
             end
         end
     elseif event == "PLAYER_REGEN_DISABLED" then
-        -- Re-evaluate at combat start while the aura data may still be readable.
-        Reminder.CheckAll()
+        -- Do not run a fresh aura lookup merely because combat started.
+        -- On this client the lookup APIs can transiently return an unreadable
+        -- or empty result at the combat transition, which is not proof that a
+        -- previously confirmed aura disappeared. Keep the last known state;
+        -- subsequent UNIT_AURA updates and learned expiration timers perform
+        -- the actual in-combat checks.
+        Reminder.debug.lastStateTrigger = "PLAYER_REGEN_DISABLED_SKIPPED"
+        RefreshAlert()
     elseif event == "PLAYER_DEAD" then
         for _, entry in ipairs(Entries()) do
             Reminder.states[entry.key] = "UNKNOWN"
