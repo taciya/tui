@@ -9,7 +9,11 @@ Core/Bootstrap.lua
 Core/Compat.lua
 Core/Database.lua
 Core/EventBus.lua
+Core/Debug.lua
+Core/Commands.lua
 TUI_Inspector.lua
+TUI_DebugCenter.lua
+TUI_Help.lua
 
 TUI_API.lua
 Localization.lua
