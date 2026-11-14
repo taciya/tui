@@ -228,7 +228,9 @@ end
 local function MarkRemovedAuraInstance(instanceID, source)
     local key = Reminder.auraInstanceSpells[instanceID]
     if not key then
-        Reminder.debug.lastRemoval = tostring(instanceID) .. " unmapped (" .. tostring(source or "unknown") .. ")"
+        if Reminder.debug.lastRemoval == "none" then
+            Reminder.debug.lastRemoval = tostring(instanceID) .. " unmapped (" .. tostring(source or "unknown") .. ")"
+        end
         return
     end
     Reminder.debug.lastRemoval = tostring(instanceID) .. " -> " .. tostring(key) .. " (" .. tostring(source or "unknown") .. ")"
