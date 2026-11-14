@@ -113,7 +113,7 @@ local function KeyFor(id, name)
     return id and tostring(id) or ("name:" .. string.lower(name))
 end
 
-local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {}, auraInstanceSpells = {}, auraInstanceDetails = {}, auraInstanceHistory = {}, auraInstanceSources = {}, lastAuraInstanceSet = nil, instanceTrackedKeys = {}, confirmedRemovedKeys = {}, snapshotPresent = {}, snapshotValid = false, debug = { auraEvents = 0, playerAuraEvents = 0, updateInfoEvents = 0, removedIDs = 0, snapshotOK = 0, snapshotFailed = 0, snapshotRemoved = 0, lastRemoval = "none", alertRefreshes = 0, alertMissingCount = 0, alertLastText = "" } }
+local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {}, auraInstanceSpells = {}, auraInstanceDetails = {}, auraInstanceHistory = {}, auraInstanceSources = {}, auraInstanceAddedSequence = {}, eventSequence = 0, lastRemovalSequence = {}, lastAuraInstanceSet = nil, instanceTrackedKeys = {}, confirmedRemovedKeys = {}, snapshotPresent = {}, snapshotValid = false, debug = { auraEvents = 0, playerAuraEvents = 0, updateInfoEvents = 0, removedIDs = 0, snapshotOK = 0, snapshotFailed = 0, snapshotRemoved = 0, lastRemoval = "none", alertRefreshes = 0, alertMissingCount = 0, alertLastText = "" } }
 
 local function ReadByID(id)
     if not id or not C_UnitAuras then return nil, false, false end
@@ -151,9 +151,15 @@ local function ReadByNameModern(name)
             Reminder.debug.lastNameLookup = "PRESENT"
             return aura, true, false
         else
-            -- A successful direct spell-name lookup returning ordinary nil is
-            -- a definitive absence result. Do not let an unavailable/tainted
-            -- index scan downgrade this result to UNKNOWN during combat.
+            -- This client can return nil from direct spell-name lookup during
+            -- combat even while the aura is still active (confirmed by live
+            -- combat diagnostics). Treat combat nil as unverified, not absent.
+            local inCombat = type(InCombatLockdown) == "function" and InCombatLockdown()
+            if inCombat then
+                Reminder.debug.lastNameLookup = "ABSENT_UNVERIFIED_IN_COMBAT"
+                unknown = true
+                return nil, true, true, false
+            end
             Reminder.debug.lastNameLookup = "ABSENT"
             return nil, true, false, true
         end
@@ -286,6 +292,8 @@ local function RememberAuraInstance(aura, source)
         -- aura query can clear a confirmed-removal latch. Snapshot enumeration
         -- alone is not sufficient on this client because it can expose stale IDs.
         if source == "event-added" then
+            Reminder.eventSequence = Reminder.eventSequence + 1
+            Reminder.auraInstanceAddedSequence[instanceID] = Reminder.eventSequence
             Reminder.confirmedRemovedKeys[entry.key] = nil
         end
     end
@@ -297,7 +305,9 @@ local function HasOtherAuraInstance(key, excludedInstanceID)
         -- presence on this client: its instance list can retain stale IDs.
         -- Only an explicit addedAuras event confirms a new live sibling.
         if instanceID ~= excludedInstanceID and instanceKey == key
-            and Reminder.auraInstanceSources[instanceID] == "event-added" then
+            and Reminder.auraInstanceSources[instanceID] == "event-added"
+            and (Reminder.auraInstanceAddedSequence[instanceID] or 0)
+                > (Reminder.lastRemovalSequence[key] or 0) then
             return true
         end
     end
@@ -313,10 +323,13 @@ local function MarkRemovedAuraInstance(instanceID, source)
         return
     end
     local detail = Reminder.auraInstanceDetails[instanceID] or {}
+    Reminder.eventSequence = Reminder.eventSequence + 1
+    Reminder.lastRemovalSequence[key] = Reminder.eventSequence
     Reminder.debug.lastRemoval = string.format("%s -> %s [spellID:%s name:%s] (%s)", tostring(instanceID), tostring(key), tostring(detail.spellID or "-"), tostring(detail.name or "-"), tostring(source or "unknown"))
     Reminder.auraInstanceSpells[instanceID] = nil
     Reminder.auraInstanceHistory[instanceID] = nil
     Reminder.auraInstanceSources[instanceID] = nil
+    Reminder.auraInstanceAddedSequence[instanceID] = nil
     Reminder.auraInstanceDetails[instanceID] = nil
     if not HasOtherAuraInstance(key, instanceID) then
         Reminder.states[key] = "MISSING"
