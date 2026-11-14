@@ -53,20 +53,40 @@ local function SpellInfo(identifier)
     return id, name
 end
 
+-- Class restrictions are stored with each SavedVariables entry. Spell 324
+-- (Lightning Shield) is Shaman-only; unknown custom entries are scoped to the
+-- class on which they are added.
+local CLASS_BY_SPELL = {
+    [324] = "SHAMAN",
+}
+
+local function PlayerClassToken()
+    if type(UnitClass) ~= "function" then return nil end
+    local ok, _, token = pcall(UnitClass, "player")
+    if ok and type(token) == "string" then return token end
+    return nil
+end
+
 local function Normalize(raw)
+    local id, name, class
     if type(raw) == "string" then
-        local id = tonumber(raw)
+        id = tonumber(raw)
         if id then
-            local _, name = SpellInfo(id)
-            return { spellID = id, name = name or raw }
+            local _, resolved = SpellInfo(id)
+            name = resolved or raw
+        else
+            name = raw
         end
-        return { name = raw }
+    elseif type(raw) == "table" then
+        id = tonumber(raw.spellID)
+        name = type(raw.name) == "string" and raw.name or nil
+        class = type(raw.class) == "string" and string.upper(raw.class) or nil
+    else
+        return nil
     end
-    if type(raw) ~= "table" then return nil end
-    local id = tonumber(raw.spellID)
-    local name = type(raw.name) == "string" and raw.name or nil
     if not id and not name then return nil end
-    return { spellID = id, name = name }
+    class = class or (id and CLASS_BY_SPELL[id]) or nil
+    return { spellID = id, name = name, class = class }
 end
 
 local function Entries()
@@ -360,7 +380,11 @@ local function AlertFrame()
     f:SetToplevel(true)
     if f.SetClampedToScreen then f:SetClampedToScreen(true) end
     if f.SetIgnoreParentAlpha then f:SetIgnoreParentAlpha(true) end
-    f:SetSize(1120, 150)
+    -- Compact warning banner: large enough to read, without covering the play
+    -- field. Width is capped for smaller resolutions.
+    local screenWidth = UIParent and UIParent.GetWidth and UIParent:GetWidth() or 1280
+    local alertWidth = math.min(720, math.max(420, screenWidth - 80))
+    f:SetSize(alertWidth, 88)
     f:SetPoint("CENTER", UIParent, "CENTER", 0, 105)
 
     -- Use an explicit color texture: SetTexture(r,g,b,a) is not portable
@@ -396,10 +420,10 @@ local function AlertFrame()
 
     local fs = f:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
     fs:SetPoint("CENTER", f, "CENTER", 0, 0)
-    fs:SetWidth(1060)
+    fs:SetWidth(alertWidth - 40)
     fs:SetJustifyH("CENTER")
     local font = fs:GetFont()
-    if font then fs:SetFont(font, 34, "THICKOUTLINE") end
+    if font then fs:SetFont(font, 24, "THICKOUTLINE") end
     fs:SetTextColor(1, 0.88, 0.12, 1)
     if fs.SetShadowOffset then fs:SetShadowOffset(2, -2) end
     if fs.SetShadowColor then fs:SetShadowColor(0, 0, 0, 1) end
@@ -472,27 +496,33 @@ local function LearnAura(entry, aura)
 end
 
 function Reminder.CheckEntry(entry)
+    -- A class-scoped entry is not applicable to other characters. Keep it in
+    -- the shared SavedVariables database without producing false reminders.
+    local playerClass = PlayerClassToken()
+    if entry.class and playerClass and entry.class ~= playerClass then
+        Reminder.states[entry.key] = "INAPPLICABLE"
+        RefreshAlert()
+        return
+    end
+
     local state, aura = ReadAura(entry)
-    -- Once this configured aura has been observed by instance ID, a successful
-    -- complete snapshot is more reliable than spell/name lookup in combat.
-    if Reminder.snapshotValid and Reminder.instanceTrackedKeys[entry.key] then
-        -- Once UNIT_AURA explicitly reports removal of the last tracked
-        -- instance, a later snapshot-only ID must not resurrect the buff.
-        -- On this client the instance list can contain stale/recycled entries.
-        if Reminder.confirmedRemovedKeys[entry.key] then
-            state, aura = "MISSING", nil
-        elseif state == "MISSING" then
+    -- A confirmed removal is a latch: only an explicit UNIT_AURA addedAuras
+    -- record clears it in RememberAuraInstance(). A spell/name lookup returning
+    -- PRESENT is not proof that a newly observed instance is live; this client
+    -- can return stale/recycled aura data.
+    if Reminder.confirmedRemovedKeys[entry.key] then
+        state, aura = "MISSING", nil
+    elseif Reminder.snapshotValid and Reminder.instanceTrackedKeys[entry.key] then
+        if state == "MISSING" then
             aura = nil
         elseif not state or state == "UNKNOWN" then
-            -- Snapshot presence may bootstrap an unknown entry only before
-            -- a confirmed removal has occurred in this session.
             state = Reminder.snapshotPresent[entry.key] and "PRESENT" or "MISSING"
             if state == "MISSING" then aura = nil end
         end
     end
+
     local previous = Reminder.states[entry.key]
     if state == "PRESENT" then
-        Reminder.confirmedRemovedKeys[entry.key] = nil
         Reminder.states[entry.key] = state
         LearnAura(entry, aura)
     elseif state == "MISSING" then
@@ -527,7 +557,7 @@ local function HandleCast(eventArgs)
                 break
             end
         end
-        if matched then
+        if matched and not Reminder.confirmedRemovedKeys[entry.key] then
             local duration = Reminder.durations[entry.key]
             if duration and duration > 0 then
                 local expiry = now + duration
@@ -602,9 +632,11 @@ local function Add(argument)
     if not name or name == "" then Print("无法识别法术，请输入法术名称或 ID"); return end
     local key = KeyFor(id, name)
     if TUI_BuffReminderDB[key] then Print(name .. " 已在监控列表中"); return end
-    TUI_BuffReminderDB[key] = { spellID = id, name = name }
+    local class = (id and CLASS_BY_SPELL[id]) or PlayerClassToken()
+    TUI_BuffReminderDB[key] = { spellID = id, name = name, class = class }
     Reminder.states[key] = "UNKNOWN"
-    Print("已添加：" .. name .. (id and (" (ID:" .. id .. ")") or ""))
+    Print("已添加：" .. name .. (id and (" (ID:" .. id .. ")") or "")
+        .. (class and (" | 职业:" .. class) or " | 职业:通用"))
     Reminder.CheckAll()
 end
 
@@ -640,7 +672,7 @@ local function Command(message)
         else
             Print("缺失效果监控列表：")
             for _, e in ipairs(entries) do
-                Print(string.format("%s | ID:%s | %s", e.name or "未知", tostring(e.spellID or "-"), Reminder.states[e.key] or "UNKNOWN"))
+                Print(string.format("%s | ID:%s | 职业:%s | %s", e.name or "未知", tostring(e.spellID or "-"), e.class or "通用", Reminder.states[e.key] or "UNKNOWN"))
             end
         end
     elseif cmd == "clear" then
@@ -673,7 +705,11 @@ local function Command(message)
         for _, instanceID in ipairs(activeIDs) do
             local key = Reminder.auraInstanceSpells[instanceID]
             local detail = Reminder.auraInstanceDetails[instanceID] or {}
-            Print(string.format("当前实例:%s -> %s | AuraID:%s | 名称:%s", tostring(instanceID), tostring(key), tostring(detail.spellID or "-"), tostring(detail.name or "-")))
+            local source = Reminder.auraInstanceSources[instanceID] or "unknown"
+            Print(string.format("当前实例:%s -> %s | AuraID:%s | 名称:%s | 来源:%s", tostring(instanceID), tostring(key), tostring(detail.spellID or "-"), tostring(detail.name or "-"), tostring(source)))
+        end
+        for _, entry in ipairs(Entries()) do
+            Print(string.format("%s 移除锁定:%s | 快照存在:%s", tostring(entry.name or entry.key), tostring(Reminder.confirmedRemovedKeys[entry.key] or false), tostring(Reminder.snapshotPresent[entry.key] or false)))
         end
         for _, entry in ipairs(Entries()) do
             if Reminder.instanceTrackedKeys[entry.key] then
