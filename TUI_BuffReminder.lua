@@ -611,7 +611,7 @@ local function RefreshAlert()
         return
     end
     Reminder.debug.alertLastText = "缺少效果：" .. table.concat(missing, "、")
-    f.text:SetText("|cffff3333" .. Reminder.debug.alertLastText .. "|r")
+    f.text:SetText("|cffff3333缺少效果：|r|cffffff00" .. table.concat(missing, "、") .. "|r")
     f.alertActive = true
     f.pulseElapsed = 0
     f:SetAlpha(1)
@@ -1015,7 +1015,7 @@ local function Command(message)
         Print(string.format("提醒刷新完成 | missing:%d | shown:%s | text:%s", Reminder.debug.alertMissingCount, tostring(alert and alert:IsShown() or false), tostring(Reminder.debug.alertLastText)))
     elseif cmd == "test" then
         local f = AlertFrame()
-        f.text:SetText("|cffff3333缺少效果：闪电之盾（测试）|r")
+        f.text:SetText("|cffff3333缺少效果：|r|cffffff00闪电之盾（测试）|r")
         f:Show()
         if C_Timer and C_Timer.After then C_Timer.After(4, RefreshAlert) end
     else
