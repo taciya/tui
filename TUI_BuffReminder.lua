@@ -173,6 +173,11 @@ local function ReadAura(entry)
     supported, unknown = supported or modernOK, unknown or modernUnknown
     if modern then return "PRESENT", modern end
 
+    -- A complete modern helpful-aura scan is authoritative for absence.
+    -- Do not let a stale legacy UnitAura result resurrect an aura that the
+    -- modern spell-name lookup and full indexed scan both failed to find.
+    if modernComplete and not modernUnknown then return "MISSING" end
+
     local legacy, legacyOK, legacyUnknown, legacyComplete = ReadByNameLegacy(entry.name)
     supported, unknown = supported or legacyOK, unknown or legacyUnknown
     if legacy then return "PRESENT", legacy end
@@ -450,8 +455,15 @@ function Reminder.CheckEntry(entry)
     -- Once this configured aura has been observed by instance ID, a successful
     -- complete snapshot is more reliable than spell/name lookup in combat.
     if Reminder.snapshotValid and Reminder.instanceTrackedKeys[entry.key] then
-        state = Reminder.snapshotPresent[entry.key] and "PRESENT" or "MISSING"
-        if state == "MISSING" then aura = nil end
+        -- A complete independent modern scan proving absence wins over a
+        -- contradictory/stale instance snapshot. Otherwise the snapshot can
+        -- resolve UNKNOWN states, but must not override a confirmed MISSING.
+        if state == "MISSING" then
+            aura = nil
+        elseif not state or state == "UNKNOWN" then
+            state = Reminder.snapshotPresent[entry.key] and "PRESENT" or "MISSING"
+            if state == "MISSING" then aura = nil end
+        end
     end
     local previous = Reminder.states[entry.key]
     if state == "PRESENT" then
