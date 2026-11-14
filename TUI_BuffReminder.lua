@@ -88,7 +88,7 @@ local function KeyFor(id, name)
     return id and tostring(id) or ("name:" .. string.lower(name))
 end
 
-local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {}, auraInstanceSpells = {}, auraInstanceDetails = {}, auraInstanceHistory = {}, lastAuraInstanceSet = nil, instanceTrackedKeys = {}, confirmedRemovedKeys = {}, snapshotPresent = {}, snapshotValid = false, debug = { auraEvents = 0, playerAuraEvents = 0, updateInfoEvents = 0, removedIDs = 0, snapshotOK = 0, snapshotFailed = 0, snapshotRemoved = 0, lastRemoval = "none", alertRefreshes = 0, alertMissingCount = 0, alertLastText = "" } }
+local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {}, auraInstanceSpells = {}, auraInstanceDetails = {}, auraInstanceHistory = {}, auraInstanceSources = {}, lastAuraInstanceSet = nil, instanceTrackedKeys = {}, confirmedRemovedKeys = {}, snapshotPresent = {}, snapshotValid = false, debug = { auraEvents = 0, playerAuraEvents = 0, updateInfoEvents = 0, removedIDs = 0, snapshotOK = 0, snapshotFailed = 0, snapshotRemoved = 0, lastRemoval = "none", alertRefreshes = 0, alertMissingCount = 0, alertLastText = "" } }
 
 local function ReadByID(id)
     if not id or not C_UnitAuras then return nil, false, false end
@@ -221,6 +221,7 @@ local function RememberAuraInstance(aura, source)
     if entry then
         Reminder.auraInstanceSpells[instanceID] = entry.key
         Reminder.auraInstanceHistory[instanceID] = entry.key
+        Reminder.auraInstanceSources[instanceID] = source or "snapshot"
         Reminder.auraInstanceDetails[instanceID] = {
             spellID = spellOK and spellID or nil,
             name = nameOK and name or nil,
@@ -239,7 +240,13 @@ end
 
 local function HasOtherAuraInstance(key, excludedInstanceID)
     for instanceID, instanceKey in pairs(Reminder.auraInstanceSpells) do
-        if instanceID ~= excludedInstanceID and instanceKey == key then return true end
+        -- A snapshot-only sibling is not sufficient evidence of continued
+        -- presence on this client: its instance list can retain stale IDs.
+        -- Only an explicit addedAuras event confirms a new live sibling.
+        if instanceID ~= excludedInstanceID and instanceKey == key
+            and Reminder.auraInstanceSources[instanceID] == "event-added" then
+            return true
+        end
     end
     return false
 end
@@ -256,6 +263,7 @@ local function MarkRemovedAuraInstance(instanceID, source)
     Reminder.debug.lastRemoval = string.format("%s -> %s [spellID:%s name:%s] (%s)", tostring(instanceID), tostring(key), tostring(detail.spellID or "-"), tostring(detail.name or "-"), tostring(source or "unknown"))
     Reminder.auraInstanceSpells[instanceID] = nil
     Reminder.auraInstanceHistory[instanceID] = nil
+    Reminder.auraInstanceSources[instanceID] = nil
     Reminder.auraInstanceDetails[instanceID] = nil
     if not HasOtherAuraInstance(key, instanceID) then
         Reminder.states[key] = "MISSING"
@@ -294,6 +302,7 @@ local function SnapshotAuraInstances()
     for instanceID in pairs(Reminder.auraInstanceSpells) do
         if not current[instanceID] then
             Reminder.auraInstanceSpells[instanceID] = nil
+            Reminder.auraInstanceSources[instanceID] = nil
             -- Keep the historical key until a delayed removedAuraInstanceIDs
             -- event arrives; active presence is tracked separately above.
             Reminder.auraInstanceDetails[instanceID] = nil
