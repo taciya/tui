@@ -453,11 +453,13 @@ local function HandleAuraUpdate(updateInfo)
     -- Apply positive updates first and removals last. If a client reports
     -- one instance in both updated and removed lists, removal must win; a
     -- refresh that creates a new instance remains PRESENT through that new ID.
+    local eventAdded, eventUpdated, eventRemoved = 0, 0, 0
     local added = Field(updateInfo, "addedAuras")
     if type(added) == "table" and not Secret(added) then
         for _, aura in ipairs(added) do
             RememberAuraInstance(aura, "event-added")
             Reminder.debug.addedIDs = Reminder.debug.addedIDs + 1
+            eventAdded = eventAdded + 1
         end
     end
 
@@ -474,6 +476,7 @@ local function HandleAuraUpdate(updateInfo)
                     Reminder.debug.lastUpdate = "UPDATED_UNREADABLE:" .. tostring(instanceID)
                 end
                 Reminder.debug.updatedIDs = Reminder.debug.updatedIDs + 1
+                eventUpdated = eventUpdated + 1
             end
         end
     end
@@ -484,6 +487,7 @@ local function HandleAuraUpdate(updateInfo)
             if not Secret(instanceID) and type(instanceID) == "number" then
                 MarkRemovedAuraInstance(instanceID, "event")
                 Reminder.debug.removedIDs = Reminder.debug.removedIDs + 1
+                eventRemoved = eventRemoved + 1
             end
         end
     end
@@ -492,9 +496,9 @@ local function HandleAuraUpdate(updateInfo)
         Reminder.debug.lastUpdate = "DELTA"
     end
     DebugLog("EVENT", "UNIT_AURA delta applied", {
-        added = Reminder.debug.addedIDs,
-        updated = Reminder.debug.updatedIDs,
-        removed = Reminder.debug.removedIDs
+        added = eventAdded,
+        updated = eventUpdated,
+        removed = eventRemoved
     })
     Reminder.CheckAll()
 end
