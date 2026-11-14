@@ -88,7 +88,7 @@ local function KeyFor(id, name)
     return id and tostring(id) or ("name:" .. string.lower(name))
 end
 
-local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {}, auraInstanceSpells = {}, auraInstanceDetails = {}, lastAuraInstanceSet = nil, instanceTrackedKeys = {}, snapshotPresent = {}, snapshotValid = false, debug = { auraEvents = 0, playerAuraEvents = 0, updateInfoEvents = 0, removedIDs = 0, snapshotOK = 0, snapshotFailed = 0, snapshotRemoved = 0, lastRemoval = "none" } }
+local Reminder = { states = {}, durations = {}, expirations = {}, tokens = {}, auraInstanceSpells = {}, auraInstanceDetails = {}, lastAuraInstanceSet = nil, instanceTrackedKeys = {}, snapshotPresent = {}, snapshotValid = false, debug = { auraEvents = 0, playerAuraEvents = 0, updateInfoEvents = 0, removedIDs = 0, snapshotOK = 0, snapshotFailed = 0, snapshotRemoved = 0, lastRemoval = "none", alertRefreshes = 0, alertMissingCount = 0, alertLastText = "" } }
 
 local function ReadByID(id)
     if not id or not C_UnitAuras then return nil, false, false end
@@ -380,8 +380,15 @@ local function RefreshAlert()
         end
     end
     local f = AlertFrame()
-    if #missing == 0 then f:Hide(); return end
-    f.text:SetText("|cffff3333缺少效果：|r" .. table.concat(missing, "、"))
+    Reminder.debug.alertRefreshes = Reminder.debug.alertRefreshes + 1
+    Reminder.debug.alertMissingCount = #missing
+    if #missing == 0 then
+        Reminder.debug.alertLastText = ""
+        f:Hide()
+        return
+    end
+    Reminder.debug.alertLastText = "缺少效果：" .. table.concat(missing, "、")
+    f.text:SetText("|cffff3333" .. Reminder.debug.alertLastText .. "|r")
     f:Show()
 end
 
@@ -596,6 +603,8 @@ local function Command(message)
         Print(string.format("UNIT_AURA: %d (player:%d, updateInfo:%d)", Reminder.debug.auraEvents, Reminder.debug.playerAuraEvents, Reminder.debug.updateInfoEvents))
         Print(string.format("移除ID:%d | 快照成功:%d 失败:%d | 快照发现移除:%d", Reminder.debug.removedIDs, Reminder.debug.snapshotOK, Reminder.debug.snapshotFailed, Reminder.debug.snapshotRemoved))
         Print("最近移除: " .. tostring(Reminder.debug.lastRemoval))
+        local alert = Reminder.alert
+        Print(string.format("提醒诊断: refresh:%d missing:%d shown:%s alpha:%s text:%s", Reminder.debug.alertRefreshes, Reminder.debug.alertMissingCount, tostring(alert and alert:IsShown() or false), tostring(alert and alert:GetAlpha() or "-"), tostring(Reminder.debug.alertLastText)))
         local activeIDs = {}
         for instanceID, key in pairs(Reminder.auraInstanceSpells) do
             activeIDs[#activeIDs + 1] = instanceID
@@ -647,13 +656,18 @@ local function Command(message)
                 Print(string.format("  Index扫描: %d项 | 匹配:%d | %s", count, matches, found and "PRESENT" or "ABSENT/UNKNOWN"))
             end
         end
+    elseif cmd == "alert" then
+        -- Force the normal alert refresh path using the current reminder states.
+        RefreshAlert()
+        local alert = Reminder.alert
+        Print(string.format("提醒刷新完成 | missing:%d | shown:%s | text:%s", Reminder.debug.alertMissingCount, tostring(alert and alert:IsShown() or false), tostring(Reminder.debug.alertLastText)))
     elseif cmd == "test" then
         local f = AlertFrame()
         f.text:SetText("|cffff3333缺少效果：闪电之盾（测试）|r")
         f:Show()
         if C_Timer and C_Timer.After then C_Timer.After(4, RefreshAlert) end
     else
-        Print("用法：/tuibuff add <名称或ID> | del <名称或ID> | list | clear | check | debug | test")
+        Print("用法：/tuibuff add <名称或ID> | del <名称或ID> | list | clear | check | debug | alert | test")
     end
 end
 
