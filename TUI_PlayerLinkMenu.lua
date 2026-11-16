@@ -142,13 +142,13 @@ function TUI_PlayerWhoSearch(fullName)
 	-- hardware-event context required by SendWho on supported clients.
 	sendWho("n-" .. token)
 
-	TUI_WhoPrint("正在查询玩家「" .. token .. "」……")
+	-- TUI_WhoPrint("正在查询玩家「" .. token .. "」……")
 	if C_Timer and C_Timer.After then
 		C_Timer.After(8, function()
 			if TUI_WhoPending == request then
 				TUI_WhoPending = nil
 				TUI_SetWhoToUi(false)
-				TUI_WhoPrint("玩家查询暂时没有返回结果；可能是服务器 WHO 冷却，请稍后重试。")
+				-- TUI_WhoPrint("玩家查询暂时没有返回结果；可能是服务器 WHO 冷却，请稍后重试。")
 			end
 		end)
 	end
