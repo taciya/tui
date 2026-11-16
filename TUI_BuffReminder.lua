@@ -236,15 +236,17 @@ local function ReadByNameLegacy(name)
 end
 
 local function ReadAura(entry)
-    local supported, unknown = false, false
-    local idReliableAbsent = false
+    -- When a stable spell ID is configured, use it as the sole identity.
+    -- Falling back to localized spell-name lookup can produce false absence
+    -- (or a match to a different same-name aura) on combat-restricted clients.
     if entry.spellID then
         local aura, idOK, uncertain = ReadByID(entry.spellID)
-        supported, unknown = supported or idOK, unknown or uncertain
         if aura then return "PRESENT", aura end
-        idReliableAbsent = idOK and not uncertain
+        if idOK and not uncertain then return "MISSING" end
+        return "UNKNOWN"
     end
 
+    local supported, unknown = false, false
     local modern, modernOK, modernUnknown, modernComplete = ReadByNameModern(entry.name)
     supported, unknown = supported or modernOK, unknown or modernUnknown
     Reminder.debug.lastModernScan = string.format("supported:%s unknown:%s complete:%s", tostring(modernOK), tostring(modernUnknown), tostring(modernComplete))
@@ -269,8 +271,11 @@ end
 -- can identify an aura disappearing even when its current AuraData is hidden.
 local function EntryForSpell(spellID, name)
     for _, entry in ipairs(Entries()) do
-        if (spellID and entry.spellID == spellID)
-            or (name and entry.name and string.lower(entry.name) == string.lower(name)) then
+        -- ID-backed entries must never be associated by localized name.
+        -- Name matching is reserved for entries that genuinely have no ID.
+        if entry.spellID then
+            if spellID and entry.spellID == spellID then return entry end
+        elseif name and entry.name and string.lower(entry.name) == string.lower(name) then
             return entry
         end
     end
@@ -760,7 +765,7 @@ local function HandleCast(eventArgs)
         local matched = false
         for _, value in ipairs(eventArgs or {}) do
             if (entry.spellID and value == entry.spellID)
-                or (type(value) == "string" and entry.name
+                or (not entry.spellID and type(value) == "string" and entry.name
                     and string.lower(value) == string.lower(entry.name)) then
                 matched = true
                 break
